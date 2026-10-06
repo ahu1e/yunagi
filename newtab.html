@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#17171b">
+    <title>yunagi</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="page-enter">
+    <div class="wallpaper" aria-hidden="true"></div>
+    <video class="wallpaper-video" id="wallpaperVideo" muted loop playsinline aria-hidden="true"></video>
+    <div class="wallpaper-shade" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+    <canvas class="snow-canvas" id="snowCanvas" aria-hidden="true"></canvas>
+
+    <main class="canvas">
+      <section class="left-stack" aria-label="Погода и закладки">
+        <button class="glass weather-card widget" data-widget="weather" type="button" aria-label="Погода. Дважды нажмите, чтобы настроить">
+          <span class="weather-icon" id="weatherIcon" aria-hidden="true">☁</span>
+          <span class="weather-copy">
+            <span class="weather-temp" id="weatherTemp">—°</span>
+            <span class="weather-city" id="weatherCity">Загрузка…</span>
+          </span>
+        </button>
+
+        <section class="glass bookmarks-card widget" data-widget="bookmarks" aria-label="Избранные сайты. Дважды нажмите, чтобы настроить">
+          <div class="card-heading">
+            <span>ИЗБРАННОЕ</span>
+          </div>
+          <div class="bookmark-grid" id="bookmarkGrid"></div>
+        </section>
+      </section>
+
+      <section class="right-stack" aria-label="Дата и время">
+        <button class="glass date-card widget" data-widget="clock" type="button" aria-label="Дата и время. Дважды нажмите, чтобы настроить">
+          <span class="date-weekday" id="weekday">ВТОРНИК</span>
+          <span class="date-main"><span class="date-day" id="day">06</span><span class="date-month" id="month">ОКТ</span></span>
+          <span class="date-year" id="year">2026</span>
+        </button>
+        <button class="glass clock-card widget" data-widget="clock" type="button" aria-label="Часы. Дважды нажмите, чтобы настроить">
+          <span class="analog-clock" aria-hidden="true"><i class="clock-hand hour-hand" id="hourHand"></i><i class="clock-hand minute-hand" id="minuteHand"></i><i class="clock-pin"></i></span>
+          <span class="digital-time" id="digitalTime">00:00</span>
+        </button>
+      </section>
+
+      <section class="search-area" aria-label="Поиск">
+        <form class="glass search-box" id="searchForm" autocomplete="off">
+          <span class="search-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.4"></circle><path d="m16 16 4.2 4.2"></path></svg></span>
+          <input id="searchInput" type="search" placeholder="Искать в тишине…" aria-label="Поисковый запрос" spellcheck="false">
+          <button class="engine-button" id="engineButton" type="button" aria-label="Выбрать поисковую систему" title="Поисковая система">G</button>
+          <span class="search-hint" aria-hidden="true">↵</span>
+        </form>
+        <span class="search-caption">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
+      </section>
+
+      <section class="focus-panel glass" id="focusPanel" aria-label="Режим фокуса" aria-hidden="true">
+        <span class="focus-kicker">yunagi / focus</span>
+        <h1>Один момент за раз.</h1>
+        <label class="focus-field-label" for="focusNote">ТВОЁ НАМЕРЕНИЕ</label>
+        <textarea id="focusNote" maxlength="240" placeholder="Что сегодня действительно важно?" rows="2"></textarea>
+        <div class="focus-task-heading"><span class="focus-field-label">МАЛЕНЬКИЕ ШАГИ</span><span class="focus-task-count" id="taskCount">0</span></div>
+        <form class="focus-task-form" id="taskForm">
+          <input id="taskInput" type="text" maxlength="100" placeholder="Добавить задачу…" aria-label="Новая задача">
+          <button type="submit" aria-label="Добавить задачу">＋</button>
+        </form>
+        <ul class="focus-task-list" id="taskList"></ul>
+      </section>
+
+      <section class="idle-overlay" id="idleOverlay" aria-label="Часы и погода" aria-hidden="true">
+        <time class="idle-time" id="idleTime">00:00</time>
+        <div class="idle-weather" id="idleWeather" title="Погода">
+          <span id="idleWeatherIcon" aria-hidden="true">☁</span>
+          <span id="idleWeatherText">Загружаем погоду…</span>
+        </div>
+      </section>
+
+      <button class="focus-trigger" id="toggleFocusMode" type="button" aria-label="Включить режим фокуса" title="Режим фокуса · F">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg>
+      </button>
+      <button class="settings-trigger" id="openGeneralSettings" type="button" aria-label="Общие настройки" title="Общие настройки">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"></path><path d="m19.4 13.5 1.1.9-1.1 1.9-1.3-.5a7.7 7.7 0 0 1-1.5.9l-.2 1.4h-2.2l-.4-1.3a7.4 7.4 0 0 1-1.8 0l-.8 1.1-1.9-1.1.4-1.3a7.7 7.7 0 0 1-.9-1.5l-1.4-.2v-2.2l1.3-.4a7.4 7.4 0 0 1 0-1.8l-1.1-.8 1.1-1.9 1.3.4a7.7 7.7 0 0 1 1.5-.9l.2-1.4h2.2l.4 1.3a7.4 7.4 0 0 1 1.8 0l.8-1.1 1.9 1.1-.4 1.3a7.7 7.7 0 0 1 .9 1.5l1.4.2v2.2l-1.3.4c.1.6.1 1.2 0 1.8Z"></path></svg>
+      </button>
+
+      <a class="brand-mark" href="https://github.com/ahu1e/yunagi.git" target="_blank" rel="noopener noreferrer" aria-label="夕凪 — открыть репозиторий yunagi на GitHub" title="Открыть GitHub">
+        <span class="brand-name">
+          <span class="brand-name-kanji" aria-hidden="true">夕凪</span>
+          <span class="brand-name-latin" aria-hidden="true">yunagi</span>
+        </span>
+      </a>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="drawer-scrim" id="drawerScrim"></div>
+    <aside class="settings-drawer" id="settingsDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
+      <div class="drawer-topline"><span class="drawer-kicker">yunagi / personalize</span><button class="close-drawer" id="closeDrawer" type="button" aria-label="Закрыть настройки">×</button></div>
+      <div class="drawer-scroll" id="drawerContent"></div>
+    </aside>
+
+    <script src="newtab.js"></script>
+  </body>
+</html>
