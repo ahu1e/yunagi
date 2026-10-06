@@ -6,7 +6,7 @@
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [
     "https://geocoding-api.open-meteo.com/*",
-    "https://api.open-meteo.com/*"
+    "https://api.met.no/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:"

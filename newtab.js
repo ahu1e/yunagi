@@ -39,18 +39,40 @@ const ENGINES = {
   ecosia: { label: "Ecosia", mark: "E", url: "https://www.ecosia.org/search?q=" }
 };
 
-const WEATHER_CODES = {
-  0: ["☀", "Ясно"], 1: ["🌤", "Преимущественно ясно"], 2: ["⛅", "Переменная облачность"],
-  3: ["☁", "Облачно"], 45: ["🌫", "Туман"], 48: ["🌫", "Изморозь"],
-  51: ["🌦", "Лёгкая морось"], 53: ["🌦", "Морось"], 55: ["🌧", "Сильная морось"],
-  56: ["🌧", "Ледяная морось"], 57: ["🌧", "Ледяная морось"], 61: ["🌦", "Небольшой дождь"],
-  63: ["🌧", "Дождь"], 65: ["🌧", "Сильный дождь"], 66: ["🌧", "Ледяной дождь"],
-  67: ["🌧", "Ледяной дождь"], 71: ["🌨", "Небольшой снег"], 73: ["❄", "Снег"],
-  75: ["❄", "Сильный снег"], 77: ["❄", "Снежная крупа"], 80: ["🌦", "Ливень"],
-  81: ["🌧", "Ливень"], 82: ["🌧", "Сильный ливень"], 85: ["🌨", "Снегопад"],
-  86: ["❄", "Сильный снегопад"], 95: ["⛈", "Гроза"], 96: ["⛈", "Гроза с градом"],
-  99: ["⛈", "Сильная гроза"]
+const WEATHER_SYMBOLS = {
+  clearsky: ["☀", "Ясно"], fair: ["🌤", "Преимущественно ясно"],
+  partlycloudy: ["⛅", "Переменная облачность"], cloudy: ["☁", "Облачно"], fog: ["🌫", "Туман"],
+  lightrain: ["🌦", "Небольшой дождь"], rain: ["🌧", "Дождь"], heavyrain: ["🌧", "Сильный дождь"],
+  lightrainshowers: ["🌦", "Кратковременный дождь"], rainshowers: ["🌧", "Ливень"], heavyrainshowers: ["🌧", "Сильный ливень"],
+  lightsleet: ["🌧", "Небольшой дождь со снегом"], sleet: ["🌨", "Дождь со снегом"], heavysleet: ["🌨", "Сильный дождь со снегом"],
+  lightsnow: ["🌨", "Небольшой снег"], snow: ["❄", "Снег"], heavysnow: ["❄", "Сильный снег"],
+  lightsnowshowers: ["🌨", "Небольшой снегопад"], snowshowers: ["❄", "Снегопад"], heavysnowshowers: ["❄", "Сильный снегопад"],
+  rainandsnow: ["🌨", "Дождь со снегом"], heavyrainandsnow: ["🌨", "Сильный дождь со снегом"],
+  lightrainandthunder: ["⛈", "Дождь с грозой"], rainandthunder: ["⛈", "Дождь с грозой"],
+  heavyrainandthunder: ["⛈", "Сильная гроза"], thunderstorm: ["⛈", "Гроза"]
 };
+
+function weatherPresentation(symbol) {
+  const normalized = String(symbol || "cloudy").replace(/_(day|night|polartwilight)$/, "");
+  if (WEATHER_SYMBOLS[normalized]) return WEATHER_SYMBOLS[normalized];
+  if (normalized.includes("thunder")) return ["⛈", "Гроза"];
+  if (normalized.includes("snow")) return ["❄", "Снег"];
+  if (normalized.includes("sleet")) return ["🌨", "Дождь со снегом"];
+  if (normalized.includes("rain")) return ["🌧", "Дождь"];
+  return ["☁", "Облачно"];
+}
+
+async function fetchWeatherJson(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Ошибка сервиса погоды: ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 const ACCENT_PALETTES = {
   snow: { color: "#f5f1e9", edge: "rgba(255,255,255,.30)" },
@@ -159,7 +181,7 @@ function updateWallpaperImage() {
     if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
     wallpaperObjectUrl = "";
     wallpaperObjectSource = "";
-    wallpaper.style.backgroundImage = "url(\"maxresdefault-gray.jpg\")";
+  wallpaper.style.backgroundImage = "url(\"Image.png\")";
     return;
   }
   if (wallpaperObjectSource === source) {
@@ -357,24 +379,24 @@ async function updateWeather() {
   try {
     const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
     geocodeUrl.search = new URLSearchParams({ name: city, count: "1", language: "ru", format: "json" });
-    const geoResponse = await fetch(geocodeUrl);
-    if (!geoResponse.ok) throw new Error("Не удалось найти город");
-    const geo = await geoResponse.json();
+    const geo = await fetchWeatherJson(geocodeUrl);
     const place = geo.results?.[0];
     if (!place) throw new Error("Город не найден");
-    const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
-    forecastUrl.search = new URLSearchParams({ latitude: place.latitude, longitude: place.longitude, current: "temperature_2m,weather_code", temperature_unit: settings.units === "fahrenheit" ? "fahrenheit" : "celsius", timezone: "auto" });
-    const response = await fetch(forecastUrl);
-    if (!response.ok) throw new Error("Погода недоступна");
-    const forecast = await response.json();
+    const forecastUrl = new URL("https://api.met.no/weatherapi/locationforecast/2.0/compact");
+    forecastUrl.search = new URLSearchParams({ lat: place.latitude, lon: place.longitude });
+    const forecast = await fetchWeatherJson(forecastUrl);
     if (request !== weatherRequest) return;
-    const current = forecast.current;
-    const [icon, description] = WEATHER_CODES[current.weather_code] || ["☁", "Погода"];
+    const current = forecast.properties?.timeseries?.[0]?.data;
+    const tempCelsius = current?.instant?.details?.air_temperature;
+    if (typeof tempCelsius !== "number") throw new Error("В ответе сервиса нет температуры");
+    const symbol = current.next_1_hours?.summary?.symbol_code || current.next_6_hours?.summary?.symbol_code || current.next_12_hours?.summary?.symbol_code;
+    const [icon, description] = weatherPresentation(symbol);
+    const temperature = settings.units === "fahrenheit" ? Math.round(tempCelsius * 9 / 5 + 32) : Math.round(tempCelsius);
     $("#weatherIcon").textContent = icon;
-    $("#weatherTemp").textContent = `${Math.round(current.temperature_2m)}°`;
+    $("#weatherTemp").textContent = `${temperature}°`;
     $("#weatherCity").textContent = place.name;
-    $(".weather-card").setAttribute("aria-label", `${description}, ${Math.round(current.temperature_2m)} градусов в городе ${place.name}. Дважды нажмите, чтобы настроить`);
-    updateIdleWeather(icon, `${Math.round(current.temperature_2m)}° · ${place.name}`, description);
+    $(".weather-card").setAttribute("aria-label", `${description}, ${temperature} градусов в городе ${place.name}. Дважды нажмите, чтобы настроить`);
+    updateIdleWeather(icon, `${temperature}° · ${place.name}`, description);
   } catch (error) {
     if (request !== weatherRequest) return;
     $("#weatherIcon").textContent = "☁";

@@ -15,7 +15,7 @@ body { isolation: isolate; background: #242328; color: var(--text); font-family:
 button, input, select { font: inherit; }
 button { color: inherit; }
 .wallpaper, .wallpaper-shade, .grain { position: fixed; inset: 0; pointer-events: none; }
-.wallpaper { z-index: -4; background: url("maxresdefault-gray.jpg") center center / cover no-repeat; transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0); filter: brightness(var(--wallpaper-brightness, .76)); transition: background-image .35s ease, filter .2s ease, transform .25s ease; }
+.wallpaper { z-index: -4; background: url("Image.png") center center / cover no-repeat; transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0); filter: brightness(var(--wallpaper-brightness, .76)); transition: background-image .35s ease, filter .2s ease, transform .25s ease; }
 .wallpaper-video { position: fixed; z-index: -3; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0); filter: brightness(var(--wallpaper-brightness, .76)); transition: opacity .7s ease, transform .25s ease, filter .2s ease; }
 .wallpaper-video.is-active { opacity: 1; }
 .parallax-enabled .wallpaper, .parallax-enabled .wallpaper-video { will-change: transform; }
