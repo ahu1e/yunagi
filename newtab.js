@@ -22,6 +22,16 @@ const DEFAULTS = {
   videoEnabled: false,
   parallaxEnabled: false,
   widgetSizes: { weather: 100, bookmarks: 100, clock: 100 },
+  layoutMode: "free",
+  widgetLayout: {
+    weather: { x: 1, y: 1, w: 2, h: 0 },
+    bookmarks: { x: 1, y: 3, w: 3, h: 0 },
+    date: { x: 22, y: 1, w: 2, h: 0 },
+    clock: { x: 22, y: 4, w: 2, h: 0 },
+    search: { x: 8, y: 10, w: 10, h: 0 }
+  },
+  clockDisplay: "both",
+  seasonalMode: "auto",
   snowEnabled: false,
   snowIntensity: "normal",
   snowSchedule: false,
@@ -116,7 +126,7 @@ async function loadSettings() {
     if (globalThis.chrome?.storage?.local) {
       const regularKeys = Object.keys(DEFAULTS).filter((key) => key !== "customVideo");
       const stored = await chrome.storage.local.get(regularKeys);
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) } };
+      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
       if (settings.videoEnabled && settings.hasCustomVideo) {
         const media = await chrome.storage.local.get("customVideo");
         settings.customVideo = media.customVideo || "";
@@ -124,7 +134,7 @@ async function loadSettings() {
       }
     } else {
       const stored = JSON.parse(localStorage.getItem("yunagi-settings") || localStorage.getItem("yukinagi-settings") || "{}");
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) } };
+      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
     }
   } catch (error) {
     console.warn("yunagi: using default settings", error);
@@ -157,6 +167,7 @@ function renderAppearance() {
   document.documentElement.style.setProperty("--wallpaper-shade", String(shade / 100));
   document.documentElement.style.setProperty("--wallpaper-scale", String((scale / 100) * (parallaxActive ? 1.025 : 1)));
   updateTheme();
+  renderWidgetLayout();
   for (const widget of ["weather", "bookmarks", "clock"]) {
     const size = Number(settings.widgetSizes?.[widget]) || 100;
     document.documentElement.style.setProperty(`--widget-${widget}-scale`, String(size / 100));
@@ -168,6 +179,118 @@ function renderAppearance() {
     document.documentElement.style.setProperty("--parallax-x", "0px");
     document.documentElement.style.setProperty("--parallax-y", "0px");
   }
+}
+
+const WIDGET_LAYOUT_DEFAULTS = {
+  weather: { x: 1, y: 1, w: 2, h: 0 },
+  bookmarks: { x: 1, y: 3, w: 3, h: 0 },
+  date: { x: 22, y: 1, w: 2, h: 0 },
+  clock: { x: 22, y: 4, w: 2, h: 0 },
+  search: { x: 8, y: 10, w: 10, h: 0 }
+};
+
+function renderWidgetLayout() {
+  const mode = ["free", "stack", "custom"].includes(settings.layoutMode) ? settings.layoutMode : "free";
+  document.body.dataset.layoutMode = mode;
+  const clock = $("#clockCard");
+  if (clock) clock.dataset.display = ["analog", "digital", "both"].includes(settings.clockDisplay) ? settings.clockDisplay : "both";
+  const bookmarkWidth = Number(settings.widgetLayout?.bookmarks?.w) || 3;
+  const canvas = $(".canvas");
+  const padding = getComputedStyle(canvas);
+  const padLeft = parseFloat(padding.paddingLeft) || 0;
+  const padRight = parseFloat(padding.paddingRight) || 0;
+  const padTop = parseFloat(padding.paddingTop) || 0;
+  const padBottom = parseFloat(padding.paddingBottom) || 0;
+  const canvasWidth = canvas.clientWidth - padLeft - padRight;
+  const canvasHeight = canvas.clientHeight - padTop - padBottom;
+  const bookmarkColumns = mode === "stack" ? 3 : Math.max(2, Math.min(6, Math.floor((bookmarkWidth * canvasWidth / 24 - 22) / 46)));
+  document.documentElement.style.setProperty("--bookmark-columns", String(bookmarkColumns));
+  $$('[data-layout-item]').forEach((item) => {
+    const key = item.dataset.layoutItem;
+    const layout = settings.widgetLayout?.[key] || WIDGET_LAYOUT_DEFAULTS[key];
+    if (!layout) return;
+    const minimumWidth = key === "search" ? Math.min(260, canvasWidth) : key === "bookmarks" ? Math.min(150, canvasWidth) : Math.min(84, canvasWidth);
+    const width = Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
+    item.style.left = `${Math.min(padLeft + ((layout.x - 1) / 24) * canvasWidth, padLeft + canvasWidth - width)}px`;
+    item.style.top = `${padTop + ((layout.y - 1) / 12) * canvasHeight}px`;
+    item.style.width = `${width}px`;
+    item.style.height = layout.h ? `${(layout.h / 12) * canvasHeight}px` : "";
+  });
+  $("#leftStack").dataset.layoutMode = mode;
+  document.body.classList.toggle("season-halloween", isHalloweenActive());
+  $("#layoutEditBar")?.setAttribute("aria-hidden", String(!document.body.classList.contains("layout-editing")));
+  $("#toggleLayoutEdit")?.classList.toggle("is-active", document.body.classList.contains("layout-editing"));
+}
+
+function isHalloweenActive() {
+  if (settings.seasonalMode === "halloween") return true;
+  if (settings.seasonalMode !== "auto") return false;
+  const now = new Date();
+  return (now.getMonth() === 9 && now.getDate() >= 20) || (now.getMonth() === 10 && now.getDate() <= 2);
+}
+
+function setLayoutMode(mode) {
+  settings.layoutMode = mode;
+  if (mode === "stack") {
+    settings.widgetLayout.weather = { ...settings.widgetLayout.weather, x: 2, y: 3, h: 0 };
+    settings.widgetLayout.bookmarks = { ...settings.widgetLayout.bookmarks, x: 2, y: 5, h: 0 };
+  }
+  document.body.classList.remove("layout-editing");
+  renderWidgetLayout();
+  saveSettings();
+}
+
+function toggleLayoutEditor(enabled = !document.body.classList.contains("layout-editing")) {
+  document.body.classList.toggle("layout-editing", enabled);
+  if (enabled) settings.layoutMode = "custom";
+  renderWidgetLayout();
+  saveSettings();
+}
+
+function setupWidgetEditor() {
+  $$('[data-layout-item]').forEach((item) => {
+    const drag = el("span", "layout-drag-handle", "⠿");
+    const resize = el("span", "layout-resize-handle", "↘");
+    drag.setAttribute("aria-label", "Перетащить блок");
+    resize.setAttribute("aria-label", "Изменить размер блока");
+    item.append(drag, resize);
+    const start = (event, resizeMode) => {
+      if (!document.body.classList.contains("layout-editing") || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const key = item.dataset.layoutItem;
+      const rect = item.getBoundingClientRect();
+      const initial = { ...settings.widgetLayout[key] };
+      const pointerX = event.clientX;
+      const pointerY = event.clientY;
+      const canvasRect = $(".canvas").getBoundingClientRect();
+      const col = canvasRect.width / 24;
+      const row = canvasRect.height / 12;
+      item.classList.add("is-layout-active");
+      const move = (pointer) => {
+        const dx = Math.round((pointer.clientX - pointerX) / col);
+        const dy = Math.round((pointer.clientY - pointerY) / row);
+        const layout = settings.widgetLayout[key];
+        if (resizeMode) {
+          layout.w = Math.max(1, Math.min(25 - initial.x, initial.w + dx));
+          layout.h = Math.max(1, Math.min(13 - initial.y, (initial.h || Math.max(1, Math.round(rect.height / row))) + dy));
+        } else {
+          layout.x = Math.max(1, Math.min(25 - initial.w, initial.x + dx));
+          layout.y = Math.max(1, Math.min(13 - (initial.h || 1), initial.y + dy));
+        }
+        renderWidgetLayout();
+      };
+      const finish = () => {
+        item.classList.remove("is-layout-active");
+        document.removeEventListener("pointermove", move);
+        saveSettings();
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", finish, { once: true });
+    };
+    drag.addEventListener("pointerdown", (event) => start(event, false));
+    resize.addEventListener("pointerdown", (event) => start(event, true));
+  });
 }
 
 function updateWallpaperImage() {
@@ -299,7 +422,14 @@ function renderBookmarks() {
   const grid = $("#bookmarkGrid");
   grid.replaceChildren();
   const bookmarks = Array.isArray(settings.bookmarks) ? settings.bookmarks : [];
-  bookmarks.slice(0, 9).forEach((bookmark, index) => {
+  if (!bookmarks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-bookmarks";
+    empty.textContent = "Добавь первый сайт в настройках";
+    grid.append(empty);
+    return;
+  }
+  bookmarks.slice(0, 24).forEach((bookmark, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "bookmark-item";
@@ -624,6 +754,10 @@ function renderGeneralSettings(content) {
   position.addEventListener("change", () => { settings.position = position.value; renderAppearance(); saveSettings(); });
   visual.append(makeRow("Положение", "Точка фокуса фонового изображения.", position));
 
+  const halloweenMode = makeSelect([["off", "Без спецэффектов"], ["halloween", "Хэллоуин · тыквы и янтарный свет"], ["auto", "Автоматически в сезон"]], settings.seasonalMode || "off");
+  halloweenMode.addEventListener("change", async () => { settings.seasonalMode = halloweenMode.value; renderWidgetLayout(); await saveSettings(); });
+  visual.append(makeRow("Сезонный прикол", "Хэллоуин автоматически включается с 20 октября по 2 ноября.", halloweenMode));
+
   const accent = makeSelect([["snow", "Снежный"], ["ice", "Ледяной"], ["lavender", "Лавандовый"], ["rose", "Розовый рассвет"], ["moss", "Мох" ]], settings.accent);
   accent.disabled = settings.themeMode !== "manual";
   accent.addEventListener("change", () => { settings.accent = accent.value; renderAppearance(); saveSettings(); });
@@ -838,7 +972,7 @@ async function exportSettingsBackup() {
 
 function normalizeImportedSettings(source) {
   const input = source && typeof source === "object" ? source : {};
-  const bookmarks = (Array.isArray(input.bookmarks) ? input.bookmarks : DEFAULTS.bookmarks).slice(0, 9).map((bookmark) => {
+  const bookmarks = (Array.isArray(input.bookmarks) ? input.bookmarks : DEFAULTS.bookmarks).slice(0, 24).map((bookmark) => {
     const rawUrl = String(bookmark?.url || "").trim();
     let url = rawUrl;
     if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
@@ -872,6 +1006,17 @@ function normalizeImportedSettings(source) {
     city: String(input.city || DEFAULTS.city).trim().slice(0, 70) || DEFAULTS.city,
     units: input.units === "fahrenheit" ? "fahrenheit" : "celsius",
     timeFormat: input.timeFormat === "12" ? "12" : "24",
+    clockDisplay: ["analog", "digital", "both"].includes(input.clockDisplay) ? input.clockDisplay : DEFAULTS.clockDisplay,
+    layoutMode: ["free", "stack", "custom"].includes(input.layoutMode) ? input.layoutMode : DEFAULTS.layoutMode,
+    widgetLayout: Object.fromEntries(Object.entries(WIDGET_LAYOUT_DEFAULTS).map(([key, fallback]) => {
+      const saved = input.widgetLayout?.[key] || {};
+      const x = clamp(saved.x, 1, 24, fallback.x);
+      const y = clamp(saved.y, 1, 12, fallback.y);
+      const w = clamp(saved.w, 1, 25 - x, fallback.w);
+      const h = clamp(saved.h, 0, 13 - y, fallback.h);
+      return [key, { x, y, w, h }];
+    })),
+    seasonalMode: ["off", "halloween", "auto"].includes(input.seasonalMode) ? input.seasonalMode : DEFAULTS.seasonalMode,
     brightness: clamp(input.brightness, 35, 120, DEFAULTS.brightness),
     shade: clamp(input.shade, 0, 60, DEFAULTS.shade),
     scale: clamp(input.scale, 85, 130, DEFAULTS.scale),
@@ -945,9 +1090,12 @@ function renderWeatherSettings(content) {
 function renderClockSettings(content) {
   content.append(...drawerHeading("Время в своём ритме", "Настрой отображение часов и даты."));
   const section = makeSection("ЧАСЫ И ДАТА");
+  const display = makeSelect([["analog", "Только аналоговые"], ["digital", "Только цифровые"], ["both", "Показывать оба вида"]], settings.clockDisplay);
+  display.addEventListener("change", async () => { settings.clockDisplay = display.value; renderWidgetLayout(); await saveSettings(); });
+  section.append(makeRow("Вид часов", "Выбери, какие часы показывать на экране.", display));
   const format = makeSelect([["24", "24 часа"], ["12", "12 часов"]], settings.timeFormat);
   format.addEventListener("change", async () => { settings.timeFormat = format.value; updateClock(); await saveSettings(); });
-  section.append(makeRow("Формат времени", "Цифровые часы в углу экрана.", format));
+  section.append(makeRow("Формат времени", "Для цифровых часов и режима бездействия.", format));
   section.append(el("p", "setting-help", "Дата и время берутся из системных настроек компьютера."));
   content.append(section);
   renderWidgetSizeSetting(content, "clock", "Размер часов и даты");
@@ -956,6 +1104,13 @@ function renderClockSettings(content) {
 function renderBookmarkSettings(content) {
   content.append(...drawerHeading("Твои места", "Добавляй любимые сайты и расставляй их в удобном порядке."));
   const section = makeSection("ИЗБРАННЫЕ САЙТЫ");
+  const layoutMode = makeSelect([["free", "Блоки независимо"], ["stack", "Одна вертикальная колонка слева"], ["custom", "Мой макет по сетке"]], settings.layoutMode || "free");
+  layoutMode.addEventListener("change", () => setLayoutMode(layoutMode.value));
+  section.append(makeRow("Расположение", "В режиме колонки погода и каждый сайт идут отдельной строкой.", layoutMode));
+  const editLayout = el("button", "drawer-button", "⌗  Растянуть и расставить по сетке");
+  editLayout.type = "button";
+  editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
+  section.append(editLayout);
   const list = el("div", "bookmark-edit-list");
   const bookmarks = Array.isArray(settings.bookmarks) ? settings.bookmarks : [];
   if (!bookmarks.length) list.append(el("p", "empty-bookmarks", "Здесь пока тихо. Добавь первый сайт."));
@@ -1024,9 +1179,9 @@ function renderBookmarkSettings(content) {
   });
   section.append(list);
   const add = el("button", "drawer-button", "＋  Добавить сайт"); add.type = "button";
-  add.disabled = bookmarks.length >= 9;
+  add.disabled = bookmarks.length >= 24;
   add.addEventListener("click", async () => {
-    if (settings.bookmarks.length >= 9) return;
+    if (settings.bookmarks.length >= 24) return;
     settings.bookmarks.push({ name: "Новый сайт", url: "", color: "#667a82" });
     await saveSettings(); renderBookmarks(); renderDrawer();
     const inputs = $$(".bookmark-edit-row input", $("#drawerContent")); inputs.at(-2)?.focus(); inputs.at(-2)?.select();
@@ -1034,7 +1189,7 @@ function renderBookmarkSettings(content) {
   const actions = el("div", "button-row"); actions.append(add);
   section.append(actions);
   content.append(section);
-  content.append(el("p", "setting-help", "Перетаскивай значки в карточке или используй стрелки для изменения порядка. Значок можно задать символом, цветом или своим изображением."));
+  content.append(el("p", "setting-help", "Перетаскивай значки в карточке или используй стрелки для изменения порядка. Карточка растёт по числу закладок. Значок можно задать символом, цветом или своим изображением."));
   renderWidgetSizeSetting(content, "bookmarks", "Размер виджета закладок");
 }
 
@@ -1197,6 +1352,15 @@ function setupEvents() {
   $("#searchForm").addEventListener("submit", startSearch);
   $("#engineButton").addEventListener("click", toggleEngineMenu);
   $("#openGeneralSettings").addEventListener("click", () => openDrawer("general"));
+  $("#toggleLayoutEdit").addEventListener("click", () => toggleLayoutEditor());
+  $("#finishLayoutEdit").addEventListener("click", () => toggleLayoutEditor(false));
+  $("#resetWidgetLayout").addEventListener("click", () => {
+    settings.widgetLayout = JSON.parse(JSON.stringify(WIDGET_LAYOUT_DEFAULTS));
+    settings.layoutMode = "free";
+    renderWidgetLayout();
+    saveSettings();
+  });
+  window.addEventListener("resize", renderWidgetLayout);
   $("#toggleFocusMode").addEventListener("click", () => toggleFocusMode());
   $("#taskForm").addEventListener("submit", addFocusTask);
   $("#focusNote").addEventListener("input", (event) => {
@@ -1208,10 +1372,11 @@ function setupEvents() {
   $("#drawerScrim").addEventListener("click", closeDrawer);
   $$('[data-open-settings]').forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); openDrawer(button.dataset.openSettings); }));
   $$(".widget[data-widget]").forEach((widget) => {
-    widget.addEventListener("dblclick", (event) => { clearTimeout(pendingNavigation); event.preventDefault(); openDrawer(widget.dataset.widget); });
-    widget.addEventListener("keydown", (event) => { if (event.key === "Enter") openDrawer(widget.dataset.widget); });
+    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); openDrawer(widget.dataset.widget); });
+    widget.addEventListener("keydown", (event) => { if (event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });
   });
   $("#bookmarkGrid").addEventListener("click", (event) => {
+    if (document.body.classList.contains("layout-editing")) return;
     const button = event.target.closest("[data-bookmark-index]");
     if (!button) return;
     clearTimeout(pendingNavigation);
@@ -1227,6 +1392,7 @@ function setupEvents() {
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".search-area") && $(".engine-menu")) $(".engine-menu").remove();
   });
+  setupWidgetEditor();
   document.addEventListener("pointerdown", () => resetIdleTimer(true), { passive: true });
   document.addEventListener("wheel", () => resetIdleTimer(true), { passive: true });
   document.addEventListener("visibilitychange", () => {
@@ -1259,7 +1425,8 @@ function setupEvents() {
     if (event.key === "Escape") {
       const hadDrawer = document.body.classList.contains("drawer-open");
       closeDrawer(); $(".engine-menu")?.remove();
-      if (!hadDrawer && document.body.classList.contains("focus-mode")) toggleFocusMode(false);
+      if (document.body.classList.contains("layout-editing")) toggleLayoutEditor(false);
+      else if (!hadDrawer && document.body.classList.contains("focus-mode")) toggleFocusMode(false);
     }
     if (event.key === "/" && !event.ctrlKey && !event.metaKey && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
       event.preventDefault(); $("#searchInput").focus();
@@ -1291,6 +1458,7 @@ async function init() {
     updateTheme();
     const shouldSnow = isSnowEffectActive();
     if ($("#snowCanvas").classList.contains("is-active") !== shouldSnow) setSnowEffect(shouldSnow);
+    renderWidgetLayout();
   }, 60 * 1000);
   setInterval(updateWeather, 10 * 60 * 1000);
 }

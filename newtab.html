@@ -15,8 +15,8 @@
     <canvas class="snow-canvas" id="snowCanvas" aria-hidden="true"></canvas>
 
     <main class="canvas">
-      <section class="left-stack" aria-label="Погода и закладки">
-        <button class="glass weather-card widget" data-widget="weather" type="button" aria-label="Погода. Дважды нажмите, чтобы настроить">
+      <section class="left-stack" id="leftStack" aria-label="Погода и закладки">
+        <button class="glass weather-card widget" data-layout-item="weather" data-widget="weather" type="button" aria-label="Погода. Дважды нажмите, чтобы настроить">
           <span class="weather-icon" id="weatherIcon" aria-hidden="true">☁</span>
           <span class="weather-copy">
             <span class="weather-temp" id="weatherTemp">—°</span>
@@ -24,7 +24,7 @@
           </span>
         </button>
 
-        <section class="glass bookmarks-card widget" data-widget="bookmarks" aria-label="Избранные сайты. Дважды нажмите, чтобы настроить">
+        <section class="glass bookmarks-card widget" data-layout-item="bookmarks" data-widget="bookmarks" aria-label="Избранные сайты. Дважды нажмите, чтобы настроить">
           <div class="card-heading">
             <span>ИЗБРАННОЕ</span>
           </div>
@@ -33,18 +33,18 @@
       </section>
 
       <section class="right-stack" aria-label="Дата и время">
-        <button class="glass date-card widget" data-widget="clock" type="button" aria-label="Дата и время. Дважды нажмите, чтобы настроить">
+        <button class="glass date-card widget" data-layout-item="date" data-widget="clock" type="button" aria-label="Дата и время. Дважды нажмите, чтобы настроить">
           <span class="date-weekday" id="weekday">ВТОРНИК</span>
           <span class="date-main"><span class="date-day" id="day">06</span><span class="date-month" id="month">ОКТ</span></span>
           <span class="date-year" id="year">2026</span>
         </button>
-        <button class="glass clock-card widget" data-widget="clock" type="button" aria-label="Часы. Дважды нажмите, чтобы настроить">
+        <button class="glass clock-card widget" id="clockCard" data-layout-item="clock" data-widget="clock" data-display="both" type="button" aria-label="Часы. Дважды нажмите, чтобы настроить">
           <span class="analog-clock" aria-hidden="true"><i class="clock-hand hour-hand" id="hourHand"></i><i class="clock-hand minute-hand" id="minuteHand"></i><i class="clock-pin"></i></span>
           <span class="digital-time" id="digitalTime">00:00</span>
         </button>
       </section>
 
-      <section class="search-area" aria-label="Поиск">
+      <section class="search-area" data-layout-item="search" aria-label="Поиск">
         <form class="glass search-box" id="searchForm" autocomplete="off">
           <span class="search-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.4"></circle><path d="m16 16 4.2 4.2"></path></svg></span>
           <input id="searchInput" type="search" placeholder="Искать в тишине…" aria-label="Поисковый запрос" spellcheck="false">
@@ -53,6 +53,13 @@
         </form>
         <span class="search-caption">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
       </section>
+
+      <div class="seasonal-decor" id="seasonalDecor" aria-hidden="true">
+        <span class="seasonal-bat seasonal-bat-one">🦇</span>
+        <span class="seasonal-bat seasonal-bat-two">🦇</span>
+        <span class="seasonal-pumpkin seasonal-pumpkin-one">🎃</span>
+        <span class="seasonal-pumpkin seasonal-pumpkin-two">🎃</span>
+      </div>
 
       <section class="focus-panel glass" id="focusPanel" aria-label="Режим фокуса" aria-hidden="true">
         <span class="focus-kicker">yunagi / focus</span>
@@ -78,6 +85,12 @@
       <button class="focus-trigger" id="toggleFocusMode" type="button" aria-label="Включить режим фокуса" title="Режим фокуса · F">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg>
       </button>
+      <button class="layout-trigger" id="toggleLayoutEdit" type="button" aria-label="Редактировать расположение блоков" title="Редактор расположения и размеров">⌗</button>
+      <div class="layout-edit-bar" id="layoutEditBar" aria-hidden="true">
+        <span>Перетаскивай блоки за верхний маркер, меняй размер за угол</span>
+        <button class="drawer-button" id="resetWidgetLayout" type="button">Сбросить</button>
+        <button class="drawer-button primary" id="finishLayoutEdit" type="button">Готово</button>
+      </div>
       <button class="settings-trigger" id="openGeneralSettings" type="button" aria-label="Общие настройки" title="Общие настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"></path><path d="m19.4 13.5 1.1.9-1.1 1.9-1.3-.5a7.7 7.7 0 0 1-1.5.9l-.2 1.4h-2.2l-.4-1.3a7.4 7.4 0 0 1-1.8 0l-.8 1.1-1.9-1.1.4-1.3a7.7 7.7 0 0 1-.9-1.5l-1.4-.2v-2.2l1.3-.4a7.4 7.4 0 0 1 0-1.8l-1.1-.8 1.1-1.9 1.3.4a7.7 7.7 0 0 1 1.5-.9l.2-1.4h2.2l.4 1.3a7.4 7.4 0 0 1 1.8 0l.8-1.1 1.9 1.1-.4 1.3a7.7 7.7 0 0 1 .9 1.5l1.4.2v2.2l-1.3.4c.1.6.1 1.2 0 1.8Z"></path></svg>
       </button>
