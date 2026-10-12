@@ -21,7 +21,7 @@ const DEFAULTS = {
   hasCustomVideo: false,
   videoEnabled: false,
   parallaxEnabled: false,
-  widgetSizes: { weather: 100, bookmarks: 100, clock: 100 },
+  widgetSizes: { weather: 100, bookmarks: 100, date: 100, clock: 100 },
   layoutMode: "free",
   widgetLayout: {
     weather: { x: 1, y: 1, w: 2, h: 0 },
@@ -101,6 +101,8 @@ let snowContext;
 let snowflakes = [];
 let snowFrame = 0;
 let snowLastFrame = 0;
+let snowResizeFrame = 0;
+const snowSpriteCache = new Map();
 let draggedBookmarkIndex = null;
 let parallaxFrame = 0;
 let focusNoteSaveTimer;
@@ -126,7 +128,7 @@ async function loadSettings() {
     if (globalThis.chrome?.storage?.local) {
       const regularKeys = Object.keys(DEFAULTS).filter((key) => key !== "customVideo");
       const stored = await chrome.storage.local.get(regularKeys);
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
+      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}), date: stored.widgetSizes?.date ?? stored.widgetSizes?.clock ?? DEFAULTS.widgetSizes.date }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
       if (settings.videoEnabled && settings.hasCustomVideo) {
         const media = await chrome.storage.local.get("customVideo");
         settings.customVideo = media.customVideo || "";
@@ -134,12 +136,27 @@ async function loadSettings() {
       }
     } else {
       const stored = JSON.parse(localStorage.getItem("yunagi-settings") || localStorage.getItem("yukinagi-settings") || "{}");
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}) }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
+      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}), date: stored.widgetSizes?.date ?? stored.widgetSizes?.clock ?? DEFAULTS.widgetSizes.date }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
     }
   } catch (error) {
     console.warn("yunagi: using default settings", error);
-    settings = { ...DEFAULTS };
+    settings = { ...DEFAULTS, widgetLayout: { ...DEFAULTS.widgetLayout } };
   }
+  migrateWidgetLayout(settings.widgetLayout);
+}
+
+// Прежний дефолт держал правый столбец в колонке 22 — колонка 24 оставалась пустой,
+// и правый край виджетов не совпадал с отступом слева. Сдвигаем только нетронутый макет.
+function migrateWidgetLayout(layout) {
+  const dateCell = layout?.date;
+  const clockCell = layout?.clock;
+  if (!dateCell || !clockCell) return;
+  const untouched =
+    dateCell.x === 22 && dateCell.w === 2 && dateCell.y === 1 &&
+    clockCell.x === 22 && clockCell.w === 2 && clockCell.y === 3;
+  if (!untouched) return;
+  dateCell.x = 23;
+  clockCell.x = 23;
 }
 
 async function saveSettings(options = {}) {
@@ -158,6 +175,26 @@ async function saveSettings(options = {}) {
   }
 }
 
+let widgetLayoutFrame = 0;
+let pendingSaveTimer = 0;
+
+function scheduleWidgetLayout() {
+  if (widgetLayoutFrame) return;
+  widgetLayoutFrame = requestAnimationFrame(() => { widgetLayoutFrame = 0; renderWidgetLayout(); });
+}
+
+function scheduleSaveSettings() {
+  clearTimeout(pendingSaveTimer);
+  pendingSaveTimer = setTimeout(() => { pendingSaveTimer = 0; saveSettings(); }, 350);
+}
+
+function flushPendingSave() {
+  if (!pendingSaveTimer) return;
+  clearTimeout(pendingSaveTimer);
+  pendingSaveTimer = 0;
+  saveSettings();
+}
+
 function renderAppearance() {
   const brightness = Number(settings.brightness) || DEFAULTS.brightness;
   const shade = Number(settings.shade) || 0;
@@ -167,13 +204,13 @@ function renderAppearance() {
   document.documentElement.style.setProperty("--wallpaper-shade", String(shade / 100));
   document.documentElement.style.setProperty("--wallpaper-scale", String((scale / 100) * (parallaxActive ? 1.025 : 1)));
   updateTheme();
-  renderWidgetLayout();
-  for (const widget of ["weather", "bookmarks", "clock"]) {
+  scheduleWidgetLayout();
+  for (const widget of ["weather", "bookmarks", "date", "clock"]) {
     const size = Number(settings.widgetSizes?.[widget]) || 100;
     document.documentElement.style.setProperty(`--widget-${widget}-scale`, String(size / 100));
   }
   updateWallpaperImage();
-  updateWallpaperVideo();
+  scheduleWallpaperVideo();
   document.body.classList.toggle("parallax-enabled", parallaxActive);
   if (!parallaxActive) {
     document.documentElement.style.setProperty("--parallax-x", "0px");
@@ -184,10 +221,20 @@ function renderAppearance() {
 const WIDGET_LAYOUT_DEFAULTS = {
   weather: { x: 1, y: 1, w: 2, h: 0 },
   bookmarks: { x: 1, y: 3, w: 3, h: 0 },
-  date: { x: 22, y: 1, w: 2, h: 0 },
-  clock: { x: 22, y: 3, w: 2, h: 0 },
+  date: { x: 23, y: 1, w: 2, h: 0 },
+  clock: { x: 23, y: 3, w: 2, h: 0 },
   search: { x: 8, y: 10, w: 10, h: 0 }
 };
+
+// Размеры закладок — должны совпадать с CSS (.bookmarks-card, .bookmark-grid):
+// колонка не уже 48px, отступ 15+15 и бордюр 1+1, колоночный gap 8px.
+// Три колонки дают ровно 192px — как у погоды, даты и часов.
+const BOOKMARK_COL = 48;
+const BOOKMARK_GAP = 8;
+const BOOKMARK_PAD = 32;
+// Небольшой допуск, чтобы карточка могла чуть вылезти за ячейку сетки,
+// вместо того чтобы сжиматься из-за пары пикселей.
+const BOOKMARK_COL_TOLERANCE = 8;
 
 function renderWidgetLayout() {
   const mode = ["free", "stack", "custom"].includes(settings.layoutMode) ? settings.layoutMode : "free";
@@ -195,7 +242,7 @@ function renderWidgetLayout() {
   const clock = $("#clockCard");
   if (clock) clock.dataset.display = ["analog", "digital", "both"].includes(settings.clockDisplay) ? settings.clockDisplay : "both";
   const bookmarkWidth = Number(settings.widgetLayout?.bookmarks?.w) || 3;
-  const widgetScale = (key) => Math.max(0.75, Math.min(1.4, (Number(settings.widgetSizes?.[key === "date" || key === "clock" ? "clock" : key]) || 100) / 100));
+  const widgetScale = (key) => Math.max(0.75, Math.min(1.4, (Number(settings.widgetSizes?.[key]) || 100) / 100));
   const canvas = $(".canvas");
   const padding = getComputedStyle(canvas);
   const padLeft = parseFloat(padding.paddingLeft) || 0;
@@ -204,36 +251,104 @@ function renderWidgetLayout() {
   const padBottom = parseFloat(padding.paddingBottom) || 0;
   const canvasWidth = canvas.clientWidth - padLeft - padRight;
   const canvasHeight = canvas.clientHeight - padTop - padBottom;
+  // Закладки подстраиваются под количество: колонки считаем от содержимого,
+  // а ширина карточки берётся из колонок. Ячейка (w) — лишь желаемая ширина:
+  // без нужды шире ячейки блок не растёт, но и сжимается, когда закладок мало.
+  const bookmarkCount = Math.min(24, Array.isArray(settings.bookmarks) ? settings.bookmarks.length : 0);
+  const bookmarkMaxRows = 4;
   const bookmarkScale = widgetScale("bookmarks");
-  const requestedBookmarkWidth = Math.max(bookmarkWidth * 46 + 20, (bookmarkWidth / 24) * canvasWidth);
-  const bookmarkVisibleWidth = Math.min(canvasWidth, requestedBookmarkWidth * bookmarkScale);
-  const bookmarkColumns = mode === "stack" ? 3 : Math.max(1, Math.min(6, Math.floor((bookmarkVisibleWidth / bookmarkScale - 20) / 46)));
+  const columnsFor = (px) => Math.max(1, Math.floor((px + BOOKMARK_COL_TOLERANCE - (BOOKMARK_PAD - BOOKMARK_GAP)) / (BOOKMARK_COL + BOOKMARK_GAP)));
+  const widthFor = (cols) => cols * BOOKMARK_COL + (cols - 1) * BOOKMARK_GAP + BOOKMARK_PAD;
+  // Справа всегда стоит столбец с календарём и часами — широкой карточке
+  // оставляем под него место, иначе на узких окнах виджеты налезут друг на друга.
+  const bookmarkWidthLimit = Math.max(widthFor(1), canvasWidth - 192 * Math.max(widgetScale("date"), widgetScale("clock")) - 16);
+  const bookmarkMaxCols = Math.max(1, Math.min(6, columnsFor(bookmarkWidthLimit / bookmarkScale)));
+  const bookmarkCellTarget = Math.max(widthFor(bookmarkWidth), (bookmarkWidth / 24) * canvasWidth);
+  const preferredColumns = Math.max(1, Math.min(bookmarkMaxCols, columnsFor(bookmarkCellTarget)));
+  let bookmarkColumns;
+  if (mode === "stack") {
+    bookmarkColumns = 3;
+  } else if (!bookmarkCount) {
+    bookmarkColumns = preferredColumns;
+  } else {
+    // Ищем колонки, при которых блок низкий (не больше четырёх рядов) и в меру
+    // широкий. Сначала пробуем уложиться в ячейку и не оставлять последний ряд
+    // из одной закладки; только если рядов вышло бы слишком много — расширяем
+    // блок вширь, но настолько мало, насколько возможно.
+    const pickColumns = (from, to, hardRows, orphanWeight) => {
+      let best = 0;
+      let bestScore = Infinity;
+      for (let cols = from; cols <= to; cols += 1) {
+        if (cols > bookmarkCount) break;
+        const rows = Math.ceil(bookmarkCount / cols);
+        if (hardRows && rows > bookmarkMaxRows) continue;
+        const orphan = bookmarkCount % cols === 1 ? orphanWeight : 0;
+        const overflow = rows > bookmarkMaxRows ? 600 : 0;
+        const score = rows * 10 + orphan + Math.abs(cols - preferredColumns) * 10 + overflow + cols * 0.1;
+        if (score < bestScore) { bestScore = score; best = cols; }
+      }
+      return best;
+    };
+    bookmarkColumns = pickColumns(1, preferredColumns, true, 15)
+      || pickColumns(preferredColumns + 1, bookmarkMaxCols, true, 0)
+      || pickColumns(1, bookmarkMaxCols, false, 0)
+      || preferredColumns;
+  }
   document.documentElement.style.setProperty("--bookmark-columns", String(bookmarkColumns));
+  const bookmarkNaturalWidth = widthFor(bookmarkColumns);
+  const positionedItems = [];
   $$('[data-layout-item]').forEach((item) => {
     const key = item.dataset.layoutItem;
     const layout = settings.widgetLayout?.[key] || WIDGET_LAYOUT_DEFAULTS[key];
     if (!layout) return;
-    item.classList.toggle("is-single-column", key === "bookmarks" && layout.w === 1);
-    const scaleKey = key === "date" || key === "clock" ? "clock" : key;
-    const scale = key === "search" ? 1 : widgetScale(scaleKey);
-    const naturalWidth = key === "weather" ? 112 : key === "date" ? 100 : key === "clock" ? (settings.clockDisplay === "analog" ? 69 : 100) : 84;
-    const minimumWidth = key === "search" ? Math.min(260, canvasWidth) : key === "bookmarks" ? requestedBookmarkWidth * scale : naturalWidth * scale;
+    item.classList.toggle("is-single-column", key === "bookmarks" && bookmarkColumns === 1);
+    const scale = key === "search" ? 1 : widgetScale(key);
+    // Погода, дата и часы живут в одной сеточной ячейке — одинаковая ширина
+    // (192px совпадает с карточкой закладок из трёх колонок) даёт ровные колонки
+    // вместо лесенки по краям.
+    const naturalWidth = key === "weather" || key === "date" || key === "clock" ? 192 : 84;
+    const minimumWidth = key === "search" ? Math.min(260, canvasWidth) : key === "bookmarks" ? bookmarkNaturalWidth * scale : naturalWidth * scale;
     const width = key === "search" && mode === "free"
       ? Math.min(540, canvasWidth)
-      : Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
+      : key === "bookmarks" && mode !== "stack"
+        // Ширина закладок — строго под содержимое: меньше закладок — уже блок.
+        ? Math.min(canvasWidth, bookmarkWidthLimit, bookmarkNaturalWidth * scale)
+        : Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
     const height = layout.h ? (layout.h / 12) * canvasHeight : 0;
     item.style.setProperty("--layout-scale", String(scale));
     item.style.width = `${width / scale}px`;
-    item.style.height = height ? `${height / scale}px` : "";
-    const visibleHeight = height || item.getBoundingClientRect().height;
+    // Высота закладок всегда по содержимому: и переполнение при добавлении,
+    // и пустота при малом числе исчезают — ручками дотягивать не нужно.
+    const fixedHeight = key === "bookmarks" ? "" : height ? `${height / scale}px` : "";
+    item.style.height = fixedHeight;
+    item.style.minHeight = "";
     const desiredTop = padTop + ((layout.y - 1) / 12) * canvasHeight;
-    const maxTop = Math.max(padTop, padTop + canvasHeight - visibleHeight);
-    const left = key === "search" && mode === "free"
+    if (key === "bookmarks") {
+      // Страховка от вылезания за пределы холста: карточка не выше холста целиком,
+      // и только если закладок не помещается даже тогда — она прокручивается.
+      item.style.maxHeight = mode === "stack" ? "" : `${canvasHeight / scale}px`;
+    }
+    const cellLeft = padLeft + ((layout.x - 1) / 24) * canvasWidth;
+    const cellRight = padLeft + ((layout.x - 1 + layout.w) / 24) * canvasWidth;
+    // Если карточка шире своей ячейки, прижимаем её к тому краю сетки, рядом с которым она стоит:
+    // правый столбец тогда выравнивается по правому краю, а не уходит лесенкой.
+    const anchorRight = width > cellRight - cellLeft && (cellLeft + cellRight) / 2 >= padLeft + canvasWidth / 2;
+    const rawLeft = key === "search" && mode === "free"
       ? padLeft + (canvasWidth - width) / 2
-      : Math.min(padLeft + ((layout.x - 1) / 24) * canvasWidth, padLeft + canvasWidth - width);
+      : anchorRight ? cellRight - width : cellLeft;
+    const left = Math.min(Math.max(rawLeft, padLeft), padLeft + canvasWidth - width);
     item.style.left = `${left}px`;
-    item.style.top = `${Math.max(padTop, Math.min(desiredTop, maxTop))}px`;
+    positionedItems.push({ item, desiredTop, padTop, canvasHeight });
   });
+  // Apply all size writes before reading dimensions, so layout is calculated only once.
+  // Берём фактическую высоту из layout: у закладок она может быть больше заданной
+  // (высота задана как минимум, сверху — ограничение по низу холста).
+  const finalPositions = positionedItems.map(({ item, desiredTop, padTop: top, canvasHeight: availableHeight }) => {
+    const visibleHeight = item.getBoundingClientRect().height;
+    const maxTop = Math.max(top, top + availableHeight - visibleHeight);
+    return { item, top: Math.max(top, Math.min(desiredTop, maxTop)) };
+  });
+  for (const { item, top } of finalPositions) item.style.top = `${top}px`;
   $("#leftStack").dataset.layoutMode = mode;
   document.body.classList.toggle("season-halloween", isHalloweenActive());
   $("#layoutEditBar")?.setAttribute("aria-hidden", String(!document.body.classList.contains("layout-editing")));
@@ -292,6 +407,7 @@ function setupWidgetEditor() {
         const dx = Math.round((pointer.clientX - pointerX) / col);
         const dy = Math.round((pointer.clientY - pointerY) / row);
         const layout = settings.widgetLayout[key];
+        const before = `${layout.x}:${layout.y}:${layout.w}:${layout.h}`;
         if (resizeMode) {
           layout.w = Math.max(1, Math.min(25 - initial.x, initial.w + dx));
           layout.h = Math.max(1, Math.min(13 - initial.y, (initial.h || Math.max(1, Math.round(rect.height / row))) + dy));
@@ -299,7 +415,7 @@ function setupWidgetEditor() {
           layout.x = Math.max(1, Math.min(25 - initial.w, initial.x + dx));
           layout.y = Math.max(1, Math.min(13 - (initial.h || 1), initial.y + dy));
         }
-        renderWidgetLayout();
+        if (`${layout.x}:${layout.y}:${layout.w}:${layout.h}` !== before) scheduleWidgetLayout();
       };
       const finish = () => {
         item.classList.remove("is-layout-active");
@@ -355,6 +471,16 @@ function updateWallpaperImage() {
 
 function updateTheme() {
   const now = new Date();
+  const halloween = isHalloweenActive();
+  document.body.classList.toggle("season-halloween", halloween);
+  if (halloween) {
+    // Сезонный акцент ставим последним: инлайн-переменная на :root иначе
+    // перекрывает правило body.season-halloween из таблицы стилей.
+    document.documentElement.dataset.theme = "halloween";
+    document.documentElement.style.setProperty("--accent", "#f0c09a");
+    document.documentElement.style.setProperty("--glass-edge", "rgba(240, 192, 154, .40)");
+    return;
+  }
   let theme = Object.hasOwn(ACCENT_PALETTES, settings.accent) ? settings.accent : "snow";
   if (settings.themeMode === "time") {
     const hour = now.getHours();
@@ -367,6 +493,21 @@ function updateTheme() {
   document.documentElement.dataset.theme = settings.themeMode === "manual" ? theme : settings.themeMode;
   document.documentElement.style.setProperty("--accent", palette.color);
   document.documentElement.style.setProperty("--glass-edge", palette.edge);
+}
+
+let wallpaperVideoScheduled = false;
+let firstPaintDone = false;
+
+// Тяжёлое видеофои не грузим в первый кадр — иначе вкладка подлагивает при открытии.
+function scheduleWallpaperVideo() {
+  if (firstPaintDone) { updateWallpaperVideo(); return; }
+  if (wallpaperVideoScheduled) return;
+  wallpaperVideoScheduled = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    wallpaperVideoScheduled = false;
+    firstPaintDone = true;
+    updateWallpaperVideo();
+  }));
 }
 
 async function updateWallpaperVideo() {
@@ -448,6 +589,7 @@ function renderBookmarks() {
     empty.className = "empty-bookmarks";
     empty.textContent = "Добавь первый сайт в настройках";
     grid.append(empty);
+    scheduleWidgetLayout();
     return;
   }
   bookmarks.slice(0, 24).forEach((bookmark, index) => {
@@ -501,19 +643,44 @@ function renderBookmarks() {
     });
     grid.append(button);
   });
+  // Блок подстраивается под количество закладок — пересчитываем размер после отрисовки.
+  scheduleWidgetLayout();
 }
 
+let clockDateFormatter;
+let clockTimeFormatter;
+let clockTickTimer = 0;
+
+// Часы показывают только часы и минуты, поэтому пересчитываем их ровно на границе минуты,
+// а не каждую секунду.
+function scheduleClockTick() {
+  clearTimeout(clockTickTimer);
+  const now = new Date();
+  const delay = 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 25;
+  clockTickTimer = setTimeout(() => { updateClock(); scheduleClockTick(); }, delay);
+}
+
+function setText(selector, value) {
+  const node = $(selector);
+  if (node && node.textContent !== value) node.textContent = value;
+}
 function updateClock() {
   const now = new Date();
-  const dateParts = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "2-digit", month: "short", year: "numeric" }).formatToParts(now);
+  const is12 = settings.timeFormat !== "24";
+  if (!clockDateFormatter) clockDateFormatter = new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "2-digit", month: "short", year: "numeric" });
+  if (!clockTimeFormatter || clockTimeFormatter.__is12 !== is12) {
+    clockTimeFormatter = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", hour12: is12 });
+    clockTimeFormatter.__is12 = is12;
+  }
+  const dateParts = clockDateFormatter.formatToParts(now);
   const part = (type) => dateParts.find((item) => item.type === type)?.value || "";
-  $("#weekday").textContent = part("weekday").replace(/\.$/, "").toLocaleUpperCase("ru-RU");
-  $("#day").textContent = part("day");
-  $("#month").textContent = part("month").replace(/\.$/, "").toLocaleUpperCase("ru-RU");
-  $("#year").textContent = part("year");
-  const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", hour12: settings.timeFormat !== "24" }).format(now);
-  $("#digitalTime").textContent = time;
-  $("#idleTime").textContent = time;
+  setText("#weekday", part("weekday").replace(/\.$/, "").toLocaleUpperCase("ru-RU"));
+  setText("#day", part("day"));
+  setText("#month", part("month").replace(/\.$/, "").toLocaleUpperCase("ru-RU"));
+  setText("#year", part("year"));
+  const time = clockTimeFormatter.format(now);
+  setText("#digitalTime", time);
+  setText("#idleTime", time);
   const hour = now.getHours() % 12;
   const minute = now.getMinutes();
   $("#hourHand").style.transform = `translateX(-50%) rotate(${hour * 30 + minute / 2}deg)`;
@@ -747,7 +914,7 @@ function renderGeneralSettings(content) {
   const brightness = document.createElement("input");
   brightness.type = "range"; brightness.min = "35"; brightness.max = "120"; brightness.value = String(settings.brightness);
   const brightnessValue = el("span", "setting-value", `${settings.brightness}%`);
-  brightness.addEventListener("input", () => { settings.brightness = Number(brightness.value); brightnessValue.textContent = `${brightness.value}%`; renderAppearance(); saveSettings(); });
+  brightness.addEventListener("input", () => { settings.brightness = Number(brightness.value); brightnessValue.textContent = `${brightness.value}%`; renderAppearance(); scheduleSaveSettings(); });
   const brightnessControl = el("span", "setting-control"); brightnessControl.append(brightness, brightnessValue);
   const brightnessRow = makeRow("Яркость", "Настрой читаемость фонового изображения.", document.createElement("span"));
   brightnessRow.lastElementChild.replaceWith(brightnessControl);
@@ -756,7 +923,7 @@ function renderGeneralSettings(content) {
   const shade = document.createElement("input");
   shade.type = "range"; shade.min = "0"; shade.max = "60"; shade.value = String(settings.shade);
   const shadeValue = el("span", "setting-value", `${settings.shade}%`);
-  shade.addEventListener("input", () => { settings.shade = Number(shade.value); shadeValue.textContent = `${shade.value}%`; renderAppearance(); saveSettings(); });
+  shade.addEventListener("input", () => { settings.shade = Number(shade.value); shadeValue.textContent = `${shade.value}%`; renderAppearance(); scheduleSaveSettings(); });
   const shadeControl = el("span", "setting-control"); shadeControl.append(shade, shadeValue);
   const shadeRow = makeRow("Затемнение", "Мягкая вуаль для контраста виджетов.", document.createElement("span"));
   shadeRow.lastElementChild.replaceWith(shadeControl);
@@ -765,7 +932,7 @@ function renderGeneralSettings(content) {
   const scale = document.createElement("input");
   scale.type = "range"; scale.min = "85"; scale.max = "130"; scale.value = String(settings.scale);
   const scaleValue = el("span", "setting-value", `${settings.scale}%`);
-  scale.addEventListener("input", () => { settings.scale = Number(scale.value); scaleValue.textContent = `${scale.value}%`; renderAppearance(); saveSettings(); });
+  scale.addEventListener("input", () => { settings.scale = Number(scale.value); scaleValue.textContent = `${scale.value}%`; renderAppearance(); scheduleSaveSettings(); });
   const scaleControl = el("span", "setting-control"); scaleControl.append(scale, scaleValue);
   const scaleRow = makeRow("Масштаб", "Подстрой кадрирование обоев.", document.createElement("span"));
   scaleRow.lastElementChild.replaceWith(scaleControl);
@@ -1053,6 +1220,7 @@ function normalizeImportedSettings(source) {
     widgetSizes: {
       weather: clamp(sizes.weather, 75, 140, 100),
       bookmarks: clamp(sizes.bookmarks, 75, 140, 100),
+      date: clamp(sizes.date, 75, 140, clamp(sizes.clock, 75, 140, 100)),
       clock: clamp(sizes.clock, 75, 140, 100)
     },
     snowEnabled: Boolean(input.snowEnabled),
@@ -1119,7 +1287,8 @@ function renderClockSettings(content) {
   section.append(makeRow("Формат времени", "Для цифровых часов и режима бездействия.", format));
   section.append(el("p", "setting-help", "Дата и время берутся из системных настроек компьютера."));
   content.append(section);
-  renderWidgetSizeSetting(content, "clock", "Размер часов и даты");
+  renderWidgetSizeSetting(content, "date", "Размер календаря");
+  renderWidgetSizeSetting(content, "clock", "Размер часов");
 }
 
 function renderBookmarkSettings(content) {
@@ -1241,9 +1410,18 @@ function updateEngineButton() {
   $("#engineButton").title = `Поиск: ${engine.label}`;
 }
 
-function createSnowflakeSprite(size, crystalline) {
+function snowSpriteSize(size) {
+  return Math.max(3, Math.min(12, Math.round(size / 3) * 3));
+}
+
+function createSnowflakeSprite(size, crystalline, variant) {
+  const spriteSize = snowSpriteSize(size);
+  const cacheKey = `${crystalline ? "crystal" : "soft"}-${spriteSize}-${variant}`;
+  const cached = snowSpriteCache.get(cacheKey);
+  if (cached) return cached;
+
   const padding = 3;
-  const side = size + padding * 2;
+  const side = spriteSize + padding * 2;
   const ratio = 2;
   const sprite = document.createElement("canvas");
   sprite.width = Math.ceil(side * ratio);
@@ -1253,8 +1431,8 @@ function createSnowflakeSprite(size, crystalline) {
   context.scale(ratio, ratio);
 
   const center = side / 2;
-  const radius = size * 0.43;
-  const glow = context.createRadialGradient(center, center, 0, center, center, size * 0.72);
+  const radius = spriteSize * 0.43;
+  const glow = context.createRadialGradient(center, center, 0, center, center, spriteSize * 0.72);
   glow.addColorStop(0, "rgba(255,255,255,.32)");
   glow.addColorStop(.3, "rgba(226,240,255,.13)");
   glow.addColorStop(1, "rgba(226,240,255,0)");
@@ -1266,9 +1444,9 @@ function createSnowflakeSprite(size, crystalline) {
     context.lineCap = "round";
     context.lineJoin = "round";
     context.strokeStyle = "rgba(244, 250, 255, .78)";
-    context.lineWidth = Math.max(.32, size * .045);
+    context.lineWidth = Math.max(.32, spriteSize * .045);
     context.shadowColor = "rgba(216, 236, 255, .9)";
-    context.shadowBlur = size * .15;
+    context.shadowBlur = spriteSize * .15;
 
     for (let arm = 0; arm < 6; arm++) {
       const angle = arm * Math.PI / 3;
@@ -1310,7 +1488,7 @@ function createSnowflakeSprite(size, crystalline) {
 
     // Fine ice-grain catches light and keeps the crystals from reading as flat glyphs.
     context.shadowBlur = 0;
-    for (let grain = 0; grain < Math.round(size * 2.2); grain++) {
+    for (let grain = 0; grain < Math.round(spriteSize * 2.2); grain++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.random() * radius * .9;
       const grainSize = .12 + Math.random() * .28;
@@ -1325,7 +1503,7 @@ function createSnowflakeSprite(size, crystalline) {
     for (let grain = 0; grain < 9; grain++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.pow(Math.random(), 1.7) * radius * .55;
-      const grainSize = .25 + Math.random() * Math.max(.45, size * .095);
+      const grainSize = .25 + Math.random() * Math.max(.45, spriteSize * .095);
       const x = center + Math.cos(angle) * distance;
       const y = center + Math.sin(angle) * distance;
       const particle = context.createRadialGradient(x, y, 0, x, y, grainSize * 2.8);
@@ -1337,6 +1515,7 @@ function createSnowflakeSprite(size, crystalline) {
     }
   }
 
+  snowSpriteCache.set(cacheKey, sprite);
   return sprite;
 }
 
@@ -1345,15 +1524,18 @@ function createSnowflakes() {
   const width = window.innerWidth;
   const height = window.innerHeight;
   const density = { soft: 0.55, normal: 0.9, dense: 1.3 }[settings.snowIntensity] || 0.9;
-  const count = Math.min(190, Math.max(28, Math.round((width * height / 11000) * density)));
+  const count = Math.min(150, Math.max(22, Math.round((width * height / 13000) * density)));
   snowflakes = Array.from({ length: count }, () => {
     const size = 1.5 + Math.pow(Math.random(), 1.8) * 11.5;
     const crystalline = size > 5 && Math.random() < .7;
+    const variant = Math.floor(Math.random() * 6);
+    const spriteSize = snowSpriteSize(size);
     return {
       x: Math.random() * width,
       y: Math.random() * height,
       size,
-      sprite: createSnowflakeSprite(size, crystalline),
+      sprite: createSnowflakeSprite(size, crystalline, variant),
+      spriteSide: (spriteSize + 6) * (size / spriteSize),
       speed: .16 + size / 12 * .5 + Math.random() * .25,
       drift: .08 + Math.random() * .36 + size / 40,
       phase: Math.random() * Math.PI * 2,
@@ -1367,7 +1549,7 @@ function createSnowflakes() {
 function resizeSnowCanvas() {
   const canvas = $("#snowCanvas");
   if (!canvas || !snowContext) return;
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
   canvas.width = Math.round(window.innerWidth * ratio);
   canvas.height = Math.round(window.innerHeight * ratio);
   snowContext.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1394,13 +1576,17 @@ function drawSnowflakes(delta, stationary = false) {
     snowContext.translate(flake.x, flake.y);
     snowContext.rotate(flake.rotation);
     snowContext.globalAlpha = flake.alpha;
-    snowContext.drawImage(flake.sprite, -flake.size / 2 - 3, -flake.size / 2 - 3, flake.size + 6, flake.size + 6);
+    snowContext.drawImage(flake.sprite, -flake.spriteSide / 2, -flake.spriteSide / 2, flake.spriteSide, flake.spriteSide);
     snowContext.restore();
   }
 }
 
 function animateSnow(timestamp) {
-  if (!isSnowEffectActive() || reducedMotion.matches) { snowFrame = 0; return; }
+  if (!isSnowEffectActive() || reducedMotion.matches || document.hidden) { snowFrame = 0; snowLastFrame = 0; return; }
+  if (snowLastFrame && timestamp - snowLastFrame < 1000 / 30) {
+    snowFrame = requestAnimationFrame(animateSnow);
+    return;
+  }
   const delta = snowLastFrame ? Math.min((timestamp - snowLastFrame) / 16.67, 2.5) : 1;
   snowLastFrame = timestamp;
   drawSnowflakes(delta);
@@ -1419,6 +1605,7 @@ function setSnowEffect(enabled) {
     return;
   }
   canvas.classList.add("is-active");
+  if (document.hidden) return;
   resizeSnowCanvas();
   if (reducedMotion.matches) drawSnowflakes(0, true);
   else snowFrame = requestAnimationFrame(animateSnow);
@@ -1428,11 +1615,19 @@ function initializeSnowEffect() {
   const canvas = $("#snowCanvas");
   snowContext = canvas?.getContext("2d", { alpha: true });
   if (!snowContext) return;
-  window.addEventListener("resize", () => { if (isSnowEffectActive()) resizeSnowCanvas(); }, { passive: true });
+  window.addEventListener("resize", () => {
+    if (!isSnowEffectActive() || snowResizeFrame) return;
+    snowResizeFrame = requestAnimationFrame(() => {
+      snowResizeFrame = 0;
+      if (isSnowEffectActive()) resizeSnowCanvas();
+    });
+  }, { passive: true });
   const onMotionPreferenceChange = () => { renderAppearance(); setSnowEffect(isSnowEffectActive()); };
   if (reducedMotion.addEventListener) reducedMotion.addEventListener("change", onMotionPreferenceChange);
   else reducedMotion.addListener(onMotionPreferenceChange);
-  setSnowEffect(isSnowEffectActive());
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (isSnowEffectActive() && !document.hidden && !snowflakes.length) setSnowEffect(true);
+  }));
 }
 
 function toggleEngineMenu() {
@@ -1471,7 +1666,11 @@ function setupEvents() {
     renderWidgetLayout();
     saveSettings();
   });
-  window.addEventListener("resize", renderWidgetLayout);
+  let resizeFrame = 0;
+  window.addEventListener("resize", () => {
+    if (resizeFrame) return;
+    resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; renderWidgetLayout(); });
+  }, { passive: true });
   $("#toggleFocusMode").addEventListener("click", () => toggleFocusMode());
   $("#taskForm").addEventListener("submit", addFocusTask);
   $("#focusNote").addEventListener("input", (event) => {
@@ -1508,11 +1707,19 @@ function setupEvents() {
   document.addEventListener("wheel", () => resetIdleTimer(true), { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+      flushPendingSave();
       clearTimeout(idleTimer);
       idleTimer = 0;
       hideIdleClock();
-    } else resetIdleTimer(true);
+      if (snowFrame) cancelAnimationFrame(snowFrame);
+      snowFrame = 0;
+      snowLastFrame = 0;
+    } else {
+      resetIdleTimer(true);
+      if (isSnowEffectActive() && !reducedMotion.matches && !snowFrame) snowFrame = requestAnimationFrame(animateSnow);
+    }
   });
+  window.addEventListener("pagehide", flushPendingSave);
   document.addEventListener("pointermove", (event) => {
     resetIdleTimer();
     if (!settings.parallaxEnabled || reducedMotion.matches || event.pointerType !== "mouse" || document.body.classList.contains("drawer-open")) return;
@@ -1564,12 +1771,12 @@ async function init() {
   initializeSnowEffect();
   updateTheme();
   resetIdleTimer(true);
-  setInterval(updateClock, 1000);
+  scheduleClockTick();
   setInterval(() => {
     updateTheme();
     const shouldSnow = isSnowEffectActive();
     if ($("#snowCanvas").classList.contains("is-active") !== shouldSnow) setSnowEffect(shouldSnow);
-    renderWidgetLayout();
+    document.body.classList.toggle("season-halloween", isHalloweenActive());
   }, 60 * 1000);
   setInterval(updateWeather, 10 * 60 * 1000);
 }
