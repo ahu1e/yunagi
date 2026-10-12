@@ -27,7 +27,7 @@ const DEFAULTS = {
     weather: { x: 1, y: 1, w: 2, h: 0 },
     bookmarks: { x: 1, y: 3, w: 3, h: 0 },
     date: { x: 22, y: 1, w: 2, h: 0 },
-    clock: { x: 22, y: 4, w: 2, h: 0 },
+    clock: { x: 22, y: 3, w: 2, h: 0 },
     search: { x: 8, y: 10, w: 10, h: 0 }
   },
   clockDisplay: "both",
@@ -185,7 +185,7 @@ const WIDGET_LAYOUT_DEFAULTS = {
   weather: { x: 1, y: 1, w: 2, h: 0 },
   bookmarks: { x: 1, y: 3, w: 3, h: 0 },
   date: { x: 22, y: 1, w: 2, h: 0 },
-  clock: { x: 22, y: 4, w: 2, h: 0 },
+  clock: { x: 22, y: 3, w: 2, h: 0 },
   search: { x: 8, y: 10, w: 10, h: 0 }
 };
 
@@ -195,6 +195,7 @@ function renderWidgetLayout() {
   const clock = $("#clockCard");
   if (clock) clock.dataset.display = ["analog", "digital", "both"].includes(settings.clockDisplay) ? settings.clockDisplay : "both";
   const bookmarkWidth = Number(settings.widgetLayout?.bookmarks?.w) || 3;
+  const widgetScale = (key) => Math.max(0.75, Math.min(1.4, (Number(settings.widgetSizes?.[key === "date" || key === "clock" ? "clock" : key]) || 100) / 100));
   const canvas = $(".canvas");
   const padding = getComputedStyle(canvas);
   const padLeft = parseFloat(padding.paddingLeft) || 0;
@@ -203,18 +204,35 @@ function renderWidgetLayout() {
   const padBottom = parseFloat(padding.paddingBottom) || 0;
   const canvasWidth = canvas.clientWidth - padLeft - padRight;
   const canvasHeight = canvas.clientHeight - padTop - padBottom;
-  const bookmarkColumns = mode === "stack" ? 3 : Math.max(2, Math.min(6, Math.floor((bookmarkWidth * canvasWidth / 24 - 22) / 46)));
+  const bookmarkScale = widgetScale("bookmarks");
+  const requestedBookmarkWidth = Math.max(bookmarkWidth * 46 + 20, (bookmarkWidth / 24) * canvasWidth);
+  const bookmarkVisibleWidth = Math.min(canvasWidth, requestedBookmarkWidth * bookmarkScale);
+  const bookmarkColumns = mode === "stack" ? 3 : Math.max(1, Math.min(6, Math.floor((bookmarkVisibleWidth / bookmarkScale - 20) / 46)));
   document.documentElement.style.setProperty("--bookmark-columns", String(bookmarkColumns));
   $$('[data-layout-item]').forEach((item) => {
     const key = item.dataset.layoutItem;
     const layout = settings.widgetLayout?.[key] || WIDGET_LAYOUT_DEFAULTS[key];
     if (!layout) return;
-    const minimumWidth = key === "search" ? Math.min(260, canvasWidth) : key === "bookmarks" ? Math.min(150, canvasWidth) : Math.min(84, canvasWidth);
-    const width = Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
-    item.style.left = `${Math.min(padLeft + ((layout.x - 1) / 24) * canvasWidth, padLeft + canvasWidth - width)}px`;
-    item.style.top = `${padTop + ((layout.y - 1) / 12) * canvasHeight}px`;
-    item.style.width = `${width}px`;
-    item.style.height = layout.h ? `${(layout.h / 12) * canvasHeight}px` : "";
+    item.classList.toggle("is-single-column", key === "bookmarks" && layout.w === 1);
+    const scaleKey = key === "date" || key === "clock" ? "clock" : key;
+    const scale = key === "search" ? 1 : widgetScale(scaleKey);
+    const naturalWidth = key === "weather" ? 112 : key === "date" ? 100 : key === "clock" ? (settings.clockDisplay === "analog" ? 69 : 100) : 84;
+    const minimumWidth = key === "search" ? Math.min(260, canvasWidth) : key === "bookmarks" ? requestedBookmarkWidth * scale : naturalWidth * scale;
+    const width = key === "search" && mode === "free"
+      ? Math.min(540, canvasWidth)
+      : Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
+    const height = layout.h ? (layout.h / 12) * canvasHeight : 0;
+    item.style.setProperty("--layout-scale", String(scale));
+    item.style.width = `${width / scale}px`;
+    item.style.height = height ? `${height / scale}px` : "";
+    const visibleHeight = height || item.getBoundingClientRect().height;
+    const desiredTop = padTop + ((layout.y - 1) / 12) * canvasHeight;
+    const maxTop = Math.max(padTop, padTop + canvasHeight - visibleHeight);
+    const left = key === "search" && mode === "free"
+      ? padLeft + (canvasWidth - width) / 2
+      : Math.min(padLeft + ((layout.x - 1) / 24) * canvasWidth, padLeft + canvasWidth - width);
+    item.style.left = `${left}px`;
+    item.style.top = `${Math.max(padTop, Math.min(desiredTop, maxTop))}px`;
   });
   $("#leftStack").dataset.layoutMode = mode;
   document.body.classList.toggle("season-halloween", isHalloweenActive());
@@ -263,9 +281,12 @@ function setupWidgetEditor() {
       const initial = { ...settings.widgetLayout[key] };
       const pointerX = event.clientX;
       const pointerY = event.clientY;
-      const canvasRect = $(".canvas").getBoundingClientRect();
-      const col = canvasRect.width / 24;
-      const row = canvasRect.height / 12;
+      const canvas = $(".canvas");
+      const canvasStyle = getComputedStyle(canvas);
+      const contentWidth = canvas.clientWidth - parseFloat(canvasStyle.paddingLeft) - parseFloat(canvasStyle.paddingRight);
+      const contentHeight = canvas.clientHeight - parseFloat(canvasStyle.paddingTop) - parseFloat(canvasStyle.paddingBottom);
+      const col = contentWidth / 24;
+      const row = contentHeight / 12;
       item.classList.add("is-layout-active");
       const move = (pointer) => {
         const dx = Math.round((pointer.clientX - pointerX) / col);
@@ -1220,21 +1241,127 @@ function updateEngineButton() {
   $("#engineButton").title = `Поиск: ${engine.label}`;
 }
 
+function createSnowflakeSprite(size, crystalline) {
+  const padding = 3;
+  const side = size + padding * 2;
+  const ratio = 2;
+  const sprite = document.createElement("canvas");
+  sprite.width = Math.ceil(side * ratio);
+  sprite.height = Math.ceil(side * ratio);
+  const context = sprite.getContext("2d");
+  if (!context) return sprite;
+  context.scale(ratio, ratio);
+
+  const center = side / 2;
+  const radius = size * 0.43;
+  const glow = context.createRadialGradient(center, center, 0, center, center, size * 0.72);
+  glow.addColorStop(0, "rgba(255,255,255,.32)");
+  glow.addColorStop(.3, "rgba(226,240,255,.13)");
+  glow.addColorStop(1, "rgba(226,240,255,0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, side, side);
+
+  if (crystalline) {
+    context.save();
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = "rgba(244, 250, 255, .78)";
+    context.lineWidth = Math.max(.32, size * .045);
+    context.shadowColor = "rgba(216, 236, 255, .9)";
+    context.shadowBlur = size * .15;
+
+    for (let arm = 0; arm < 6; arm++) {
+      const angle = arm * Math.PI / 3;
+      const ux = Math.cos(angle);
+      const uy = Math.sin(angle);
+      const tip = radius * (.88 + Math.random() * .12);
+      context.beginPath();
+      context.moveTo(center - ux * radius * .13, center - uy * radius * .13);
+      context.lineTo(center + ux * tip, center + uy * tip);
+      context.stroke();
+
+      for (const position of [.38, .59, .77]) {
+        const branchLength = radius * (.27 - position * .1) * (.78 + Math.random() * .4);
+        const branchX = center + ux * radius * position;
+        const branchY = center + uy * radius * position;
+        for (const sideSign of [-1, 1]) {
+          const branchAngle = angle + sideSign * (.76 + Math.random() * .16);
+          const endX = branchX + Math.cos(branchAngle) * branchLength;
+          const endY = branchY + Math.sin(branchAngle) * branchLength;
+          context.beginPath();
+          context.moveTo(branchX, branchY);
+          context.lineTo(endX, endY);
+          context.stroke();
+          context.beginPath();
+          context.moveTo(branchX + (endX - branchX) * .48, branchY + (endY - branchY) * .48);
+          context.lineTo(branchX + Math.cos(branchAngle + sideSign * .85) * branchLength * .47, branchY + Math.sin(branchAngle + sideSign * .85) * branchLength * .47);
+          context.stroke();
+        }
+      }
+    }
+
+    const core = context.createRadialGradient(center - radius * .1, center - radius * .1, 0, center, center, radius * .24);
+    core.addColorStop(0, "rgba(255,255,255,.98)");
+    core.addColorStop(1, "rgba(211,232,255,.62)");
+    context.fillStyle = core;
+    context.beginPath();
+    context.arc(center, center, Math.max(.45, radius * .16), 0, Math.PI * 2);
+    context.fill();
+
+    // Fine ice-grain catches light and keeps the crystals from reading as flat glyphs.
+    context.shadowBlur = 0;
+    for (let grain = 0; grain < Math.round(size * 2.2); grain++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * radius * .9;
+      const grainSize = .12 + Math.random() * .28;
+      context.fillStyle = `rgba(255,255,255,${.18 + Math.random() * .48})`;
+      context.beginPath();
+      context.arc(center + Math.cos(angle) * distance, center + Math.sin(angle) * distance, grainSize, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  } else {
+    // Near flakes catch the light as soft, imperfect clusters rather than sharp stars.
+    for (let grain = 0; grain < 9; grain++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.pow(Math.random(), 1.7) * radius * .55;
+      const grainSize = .25 + Math.random() * Math.max(.45, size * .095);
+      const x = center + Math.cos(angle) * distance;
+      const y = center + Math.sin(angle) * distance;
+      const particle = context.createRadialGradient(x, y, 0, x, y, grainSize * 2.8);
+      particle.addColorStop(0, "rgba(255,255,255,.8)");
+      particle.addColorStop(.45, "rgba(237,246,255,.34)");
+      particle.addColorStop(1, "rgba(237,246,255,0)");
+      context.fillStyle = particle;
+      context.fillRect(x - grainSize * 3, y - grainSize * 3, grainSize * 6, grainSize * 6);
+    }
+  }
+
+  return sprite;
+}
+
 function createSnowflakes() {
   if (!snowContext) return;
   const width = window.innerWidth;
   const height = window.innerHeight;
   const density = { soft: 0.55, normal: 0.9, dense: 1.3 }[settings.snowIntensity] || 0.9;
   const count = Math.min(190, Math.max(28, Math.round((width * height / 11000) * density)));
-  snowflakes = Array.from({ length: count }, () => ({
-    x: Math.random() * width,
-    y: Math.random() * height,
-    radius: 0.65 + Math.random() * 2.15,
-    speed: 0.18 + Math.random() * 0.72,
-    drift: 0.08 + Math.random() * 0.36,
-    phase: Math.random() * Math.PI * 2,
-    alpha: 0.2 + Math.random() * 0.52
-  }));
+  snowflakes = Array.from({ length: count }, () => {
+    const size = 1.5 + Math.pow(Math.random(), 1.8) * 11.5;
+    const crystalline = size > 5 && Math.random() < .7;
+    return {
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size,
+      sprite: createSnowflakeSprite(size, crystalline),
+      speed: .16 + size / 12 * .5 + Math.random() * .25,
+      drift: .08 + Math.random() * .36 + size / 40,
+      phase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2,
+      rotationSpeed: (Math.random() - .5) * .012,
+      alpha: .24 + Math.random() * .5
+    };
+  });
 }
 
 function resizeSnowCanvas() {
@@ -1258,32 +1385,16 @@ function drawSnowflakes(delta, stationary = false) {
       flake.phase += 0.009 * delta;
       flake.y += flake.speed * delta;
       flake.x += (Math.sin(flake.phase) * flake.drift + 0.035) * delta;
-      if (flake.y > height + 8) { flake.y = -8; flake.x = Math.random() * width; }
-      if (flake.x > width + 8) flake.x = -8;
+      flake.rotation += flake.rotationSpeed * delta;
+      if (flake.y > height + flake.size) { flake.y = -flake.size; flake.x = Math.random() * width; }
+      if (flake.x > width + flake.size) flake.x = -flake.size;
     }
 
     snowContext.save();
     snowContext.translate(flake.x, flake.y);
-    snowContext.rotate(flake.phase * 0.08);
-    snowContext.strokeStyle = `rgba(245, 249, 255, ${flake.alpha})`;
-    snowContext.fillStyle = `rgba(248, 250, 255, ${flake.alpha})`;
-    if (flake.radius >= 1.8) {
-      snowContext.lineWidth = 0.65;
-      snowContext.lineCap = "round";
-      snowContext.beginPath();
-      for (let arm = 0; arm < 3; arm++) {
-        const angle = arm * Math.PI / 3;
-        const x = Math.cos(angle) * flake.radius * 1.8;
-        const y = Math.sin(angle) * flake.radius * 1.8;
-        snowContext.moveTo(-x, -y);
-        snowContext.lineTo(x, y);
-      }
-      snowContext.stroke();
-    } else {
-      snowContext.beginPath();
-      snowContext.arc(0, 0, flake.radius, 0, Math.PI * 2);
-      snowContext.fill();
-    }
+    snowContext.rotate(flake.rotation);
+    snowContext.globalAlpha = flake.alpha;
+    snowContext.drawImage(flake.sprite, -flake.size / 2 - 3, -flake.size / 2 - 3, flake.size + 6, flake.size + 6);
     snowContext.restore();
   }
 }
