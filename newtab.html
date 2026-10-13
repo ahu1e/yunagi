@@ -16,7 +16,7 @@
 
     <main class="canvas">
       <section class="left-stack" id="leftStack" aria-label="Погода и закладки">
-        <button class="glass weather-card widget" data-layout-item="weather" data-widget="weather" type="button" aria-label="Погода. Дважды нажмите, чтобы настроить">
+        <button class="glass weather-card widget" data-layout-item="weather" data-widget="weather" type="button" aria-label="Погода. Нажми, чтобы увидеть прогноз, дважды — чтобы настроить">
           <span class="weather-icon" id="weatherIcon" aria-hidden="true">☁</span>
           <span class="weather-copy">
             <span class="weather-temp" id="weatherTemp">—°</span>
@@ -51,7 +51,7 @@
           <button class="engine-button" id="engineButton" type="button" aria-label="Выбрать поисковую систему" title="Поисковая система">G</button>
           <span class="search-hint" aria-hidden="true">↵</span>
         </form>
-        <span class="search-caption">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
+        <span class="search-caption" id="searchCaption" role="button" tabindex="0" title="Нажми, чтобы сменить фразу" aria-label="Подпись. Нажми, чтобы сменить фразу">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
       </section>
 
       <div class="seasonal-decor" id="seasonalDecor" aria-hidden="true">
@@ -104,6 +104,7 @@
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="weather-panel" id="weatherPanel" aria-hidden="true" role="dialog" aria-label="Прогноз погоды"></div>
     <div class="drawer-scrim" id="drawerScrim"></div>
     <aside class="settings-drawer" id="settingsDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
       <div class="drawer-topline"><span class="drawer-kicker">yunagi / personalize</span><button class="close-drawer" id="closeDrawer" type="button" aria-label="Закрыть настройки">×</button></div>

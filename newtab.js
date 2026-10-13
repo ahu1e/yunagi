@@ -22,6 +22,7 @@ const DEFAULTS = {
   videoEnabled: false,
   parallaxEnabled: false,
   widgetSizes: { weather: 100, bookmarks: 100, date: 100, clock: 100 },
+  faviconEnabled: true,
   layoutMode: "free",
   widgetLayout: {
     weather: { x: 1, y: 1, w: 2, h: 0 },
@@ -44,10 +45,27 @@ const DEFAULTS = {
 const ENGINES = {
   google: { label: "Google", mark: "G", url: "https://www.google.com/search?q=" },
   duckduckgo: { label: "DuckDuckGo", mark: "D", url: "https://duckduckgo.com/?q=" },
-  bing: { label: "Bing", mark: "b", url: "https://www.bing.com/search?q=" },
-  brave: { label: "Brave Search", mark: "B", url: "https://search.brave.com/search?q=" },
-  ecosia: { label: "Ecosia", mark: "E", url: "https://www.ecosia.org/search?q=" }
+  bing: { label: "Bing", mark: "b", url: "https://www.bing.com/search?q=" }
 };
+
+const SEARCH_CAPTIONS = [
+  "ТИШИНА. ТВОЁ ПРОСТРАНСТВО.",
+  "ДЫШИ МЕДЛЕННЕЕ. ВСЁ УСПЕЕМ.",
+  "ОДНА МЫСЛЬ ЗА РАЗ.",
+  "СВЕТ ТИХО ПАДАЕТ НА СТЕНЫ.",
+  "ЗДЕСЬ НЕ НУЖНО СПЕШИТЬ.",
+  "МИР ЖДЁТ ВНЕ ЭКРАНА.",
+  "СОБЕРИСЬ. НАЧНИ С ГЛАВНОГО.",
+  "ТЁПЛЫЙ ШУМ ДОМА.",
+  "ВЗГЛЯНИ ОКНО. ТАМ ОСЕНЬ.",
+  "ЛЕГКО. ПРОСТО. БЕЗ ЛИШНЕГО.",
+  "ПАУЗА ТОЖЕ РАБОТА.",
+  "СЕГОДНЯ ДОСТАТОЧНО ОДНОГО ШАГА."
+];
+
+const CAPTION_ROTATE_MS = 5 * 60 * 1000;
+let captionIndex = 0;
+let captionTimer = 0;
 
 const WEATHER_SYMBOLS = {
   clearsky: ["☀", "Ясно"], fair: ["🌤", "Преимущественно ясно"],
@@ -251,11 +269,7 @@ function renderWidgetLayout() {
   const padBottom = parseFloat(padding.paddingBottom) || 0;
   const canvasWidth = canvas.clientWidth - padLeft - padRight;
   const canvasHeight = canvas.clientHeight - padTop - padBottom;
-  // Закладки подстраиваются под количество: колонки считаем от содержимого,
-  // а ширина карточки берётся из колонок. Ячейка (w) — лишь желаемая ширина:
-  // без нужды шире ячейки блок не растёт, но и сжимается, когда закладок мало.
   const bookmarkCount = Math.min(24, Array.isArray(settings.bookmarks) ? settings.bookmarks.length : 0);
-  const bookmarkMaxRows = 4;
   const bookmarkScale = widgetScale("bookmarks");
   const columnsFor = (px) => Math.max(1, Math.floor((px + BOOKMARK_COL_TOLERANCE - (BOOKMARK_PAD - BOOKMARK_GAP)) / (BOOKMARK_COL + BOOKMARK_GAP)));
   const widthFor = (cols) => cols * BOOKMARK_COL + (cols - 1) * BOOKMARK_GAP + BOOKMARK_PAD;
@@ -263,39 +277,16 @@ function renderWidgetLayout() {
   // оставляем под него место, иначе на узких окнах виджеты налезут друг на друга.
   const bookmarkWidthLimit = Math.max(widthFor(1), canvasWidth - 192 * Math.max(widgetScale("date"), widgetScale("clock")) - 16);
   const bookmarkMaxCols = Math.max(1, Math.min(6, columnsFor(bookmarkWidthLimit / bookmarkScale)));
-  const bookmarkCellTarget = Math.max(widthFor(bookmarkWidth), (bookmarkWidth / 24) * canvasWidth);
-  const preferredColumns = Math.max(1, Math.min(bookmarkMaxCols, columnsFor(bookmarkCellTarget)));
-  let bookmarkColumns;
-  if (mode === "stack") {
-    bookmarkColumns = 3;
-  } else if (!bookmarkCount) {
-    bookmarkColumns = preferredColumns;
-  } else {
-    // Ищем колонки, при которых блок низкий (не больше четырёх рядов) и в меру
-    // широкий. Сначала пробуем уложиться в ячейку и не оставлять последний ряд
-    // из одной закладки; только если рядов вышло бы слишком много — расширяем
-    // блок вширь, но настолько мало, насколько возможно.
-    const pickColumns = (from, to, hardRows, orphanWeight) => {
-      let best = 0;
-      let bestScore = Infinity;
-      for (let cols = from; cols <= to; cols += 1) {
-        if (cols > bookmarkCount) break;
-        const rows = Math.ceil(bookmarkCount / cols);
-        if (hardRows && rows > bookmarkMaxRows) continue;
-        const orphan = bookmarkCount % cols === 1 ? orphanWeight : 0;
-        const overflow = rows > bookmarkMaxRows ? 600 : 0;
-        const score = rows * 10 + orphan + Math.abs(cols - preferredColumns) * 10 + overflow + cols * 0.1;
-        if (score < bestScore) { bestScore = score; best = cols; }
-      }
-      return best;
-    };
-    bookmarkColumns = pickColumns(1, preferredColumns, true, 15)
-      || pickColumns(preferredColumns + 1, bookmarkMaxCols, true, 0)
-      || pickColumns(1, bookmarkMaxCols, false, 0)
-      || preferredColumns;
-  }
+  // Форму блока задаёт пользователь в редакторе раскладки: ширина ячейки (w) — это
+  // и есть ширина карточки, а колонки просто влезают в неё. Хочешь список на 6 в
+  // высоту — тяни w до одной ячейки; хочешь широкий блок — тяни вправо. Высота
+  // всегда по содержимому: добавил сайт — карточка подросла, удалил — сократилась.
+  const bookmarkCellWidth = Math.min(bookmarkWidthLimit, Math.max(widthFor(1), (bookmarkWidth / 24) * canvasWidth));
+  const bookmarkColumns = mode === "stack"
+    ? 3
+    : Math.max(1, Math.min(bookmarkMaxCols, columnsFor(bookmarkCellWidth / bookmarkScale), Math.max(1, bookmarkCount)));
   document.documentElement.style.setProperty("--bookmark-columns", String(bookmarkColumns));
-  const bookmarkNaturalWidth = widthFor(bookmarkColumns);
+  const bookmarkNaturalWidth = Math.max(widthFor(bookmarkColumns), bookmarkCellWidth);
   const positionedItems = [];
   $$('[data-layout-item]').forEach((item) => {
     const key = item.dataset.layoutItem;
@@ -311,7 +302,8 @@ function renderWidgetLayout() {
     const width = key === "search" && mode === "free"
       ? Math.min(540, canvasWidth)
       : key === "bookmarks" && mode !== "stack"
-        // Ширина закладок — строго под содержимое: меньше закладок — уже блок.
+        // Ширина закладок — ровно та, что задана ячейкой (w): меньше закладок —
+        // колонки становятся уже, но ширину пользователь контролирует сам.
         ? Math.min(canvasWidth, bookmarkWidthLimit, bookmarkNaturalWidth * scale)
         : Math.min(canvasWidth, Math.max((layout.w / 24) * canvasWidth, minimumWidth));
     const height = layout.h ? (layout.h / 12) * canvasHeight : 0;
@@ -322,12 +314,8 @@ function renderWidgetLayout() {
     const fixedHeight = key === "bookmarks" ? "" : height ? `${height / scale}px` : "";
     item.style.height = fixedHeight;
     item.style.minHeight = "";
+    if (key === "bookmarks") item.style.maxHeight = "";
     const desiredTop = padTop + ((layout.y - 1) / 12) * canvasHeight;
-    if (key === "bookmarks") {
-      // Страховка от вылезания за пределы холста: карточка не выше холста целиком,
-      // и только если закладок не помещается даже тогда — она прокручивается.
-      item.style.maxHeight = mode === "stack" ? "" : `${canvasHeight / scale}px`;
-    }
     const cellLeft = padLeft + ((layout.x - 1) / 24) * canvasWidth;
     const cellRight = padLeft + ((layout.x - 1 + layout.w) / 24) * canvasWidth;
     // Если карточка шире своей ячейки, прижимаем её к тому краю сетки, рядом с которым она стоит:
@@ -580,6 +568,17 @@ function isSnowEffectActive() {
   return Boolean(settings.snowEnabled || (settings.snowSchedule && isWinterSeason()));
 }
 
+// Фавикон сайта по домену. Адреса бывают без протокола и с путём — вытаскиваем
+// только хост, остальное сервису не нужно.
+function bookmarkFavicon(url) {
+  try {
+    const host = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, "");
+    return host ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64` : "";
+  } catch {
+    return "";
+  }
+}
+
 function renderBookmarks() {
   const grid = $("#bookmarkGrid");
   grid.replaceChildren();
@@ -609,7 +608,25 @@ function renderBookmarks() {
       image.className = "bookmark-custom-image";
       icon.append(image);
     } else {
-      icon.textContent = bookmark.icon || (bookmark.name || "?").trim().charAt(0).toUpperCase();
+      const fallback = bookmark.icon || (bookmark.name || "?").trim().charAt(0).toUpperCase();
+      // Свой символ или эмодзи пользователя всегда важнее фавикона.
+      const faviconUrl = bookmark.icon ? "" : settings.faviconEnabled === false ? "" : bookmarkFavicon(bookmark.url);
+      if (faviconUrl) {
+        // Фавикон подтягиваем с сервиса Google по домену. Если картинка не
+        // загрузилась (сайт без фавикона, нет сети) — возвращаем букву.
+        const image = document.createElement("img");
+        image.src = faviconUrl;
+        image.alt = "";
+        image.loading = "lazy";
+        image.className = "bookmark-favicon";
+        image.addEventListener("error", () => {
+          icon.replaceChildren();
+          icon.textContent = fallback;
+        }, { once: true });
+        icon.append(image);
+      } else {
+        icon.textContent = fallback;
+      }
     }
     const name = document.createElement("span");
     name.className = "bookmark-name";
@@ -713,8 +730,9 @@ async function updateWeather() {
     $("#weatherIcon").textContent = icon;
     $("#weatherTemp").textContent = `${temperature}°`;
     $("#weatherCity").textContent = place.name;
-    $(".weather-card").setAttribute("aria-label", `${description}, ${temperature} градусов в городе ${place.name}. Дважды нажмите, чтобы настроить`);
+    $(".weather-card").setAttribute("aria-label", `${description}, ${temperature} градусов в городе ${place.name}. Нажми, чтобы увидеть прогноз, дважды — чтобы настроить`);
     updateIdleWeather(icon, `${temperature}° · ${place.name}`, description);
+    storeWeatherDetails({ place: place.name, tempCelsius, current, timeseries: forecast.properties?.timeseries || [] });
   } catch (error) {
     if (request !== weatherRequest) return;
     $("#weatherIcon").textContent = "☁";
@@ -723,6 +741,112 @@ async function updateWeather() {
     $(".weather-card").title = "Не удалось загрузить погоду. Нажмите дважды, чтобы проверить город.";
     updateIdleWeather("☁", `Погода недоступна · ${city}`, "Погода недоступна");
     console.info("yunagi weather:", error.message);
+  }
+}
+
+let weatherDetails = null;
+let weatherPanelOpen = false;
+
+// Ощущаемая температура (Steadman): учитывает ветер и влажность — то, что человек
+// реально чувствует на улице, а не сухое число из сервиса.
+function apparentTemperature(tempCelsius, humidity, windSpeed) {
+  if (typeof tempCelsius !== "number") return null;
+  const humidityPct = typeof humidity === "number" ? humidity : 60;
+  const windMs = typeof windSpeed === "number" ? windSpeed : 0;
+  const vapor = (humidityPct / 100) * 6.105 * Math.exp((17.27 * tempCelsius) / (237.7 + tempCelsius));
+  return tempCelsius + 0.33 * vapor - 0.7 * windMs - 4;
+}
+
+function displayTemperature(celsius) {
+  if (typeof celsius !== "number") return "—";
+  const value = settings.units === "fahrenheit" ? celsius * 9 / 5 + 32 : celsius;
+  return `${Math.round(value)}°`;
+}
+
+// met.no отдаёт почасовой ряд: берём ближайшие шесть часов, плюс ветер, влажность
+// и ощущаемую температуру из текущего среза. Всё, что сервис реально позволяет.
+function storeWeatherDetails({ place, tempCelsius, current, timeseries }) {
+  const details = current?.instant?.details || {};
+  const hours = timeseries.slice(1, 7).map((entry) => {
+    const hourData = entry?.data || {};
+    const hourDetails = hourData.instant?.details || {};
+    const symbol = hourData.next_1_hours?.summary?.symbol_code || hourData.next_6_hours?.summary?.symbol_code;
+    const [hourIcon, hourDescription] = weatherPresentation(symbol);
+    const time = new Date(entry.time);
+    return {
+      label: `${String(time.getHours()).padStart(2, "0")}:00`,
+      icon: hourIcon,
+      description: hourDescription,
+      temp: displayTemperature(hourDetails.air_temperature)
+    };
+  }).filter((hour) => hour.temp !== "—");
+  weatherDetails = {
+    place,
+    temp: displayTemperature(tempCelsius),
+    feelsLike: displayTemperature(apparentTemperature(tempCelsius, details.relative_humidity, details.wind_speed)),
+    wind: typeof details.wind_speed === "number" ? `${Math.round(details.wind_speed * 3.6)} км/ч` : "—",
+    humidity: typeof details.relative_humidity === "number" ? `${Math.round(details.relative_humidity)}%` : "—",
+    hours
+  };
+  if (weatherPanelOpen) renderWeatherPanel();
+}
+
+function renderWeatherPanel() {
+  const panel = $("#weatherPanel");
+  panel.replaceChildren();
+  if (!weatherDetails) {
+    panel.append(el("p", "weather-panel-empty", "Прогноз пока недоступен"));
+    return;
+  }
+  const head = el("div", "weather-panel-head");
+  head.append(el("span", "weather-panel-place", weatherDetails.place), el("span", "weather-panel-now", `сейчас ${weatherDetails.temp}`));
+  panel.append(head);
+  const stats = el("div", "weather-panel-stats");
+  [["Ощущается", weatherDetails.feelsLike], ["Ветер", weatherDetails.wind], ["Влажность", weatherDetails.humidity]].forEach(([label, value]) => {
+    const stat = el("span", "weather-panel-stat");
+    stat.append(el("span", "weather-panel-stat-label", label), el("span", "weather-panel-stat-value", value));
+    stats.append(stat);
+  });
+  panel.append(stats);
+  if (weatherDetails.hours.length) {
+    const hours = el("div", "weather-panel-hours");
+    weatherDetails.hours.forEach((hour) => {
+      const row = el("span", "weather-panel-hour");
+      row.append(el("span", "weather-panel-hour-time", hour.label), el("span", "weather-panel-hour-icon", hour.icon), el("span", "weather-panel-hour-temp", hour.temp));
+      row.title = hour.description;
+      hours.append(row);
+    });
+    panel.append(hours);
+  }
+}
+
+// Панель раскрывается от карточки и не должна уезжать за край экрана.
+function positionWeatherPanel() {
+  const panel = $("#weatherPanel");
+  const card = $(".weather-card");
+  const rect = card.getBoundingClientRect();
+  const panelWidth = panel.offsetWidth || 260;
+  const panelHeight = panel.offsetHeight || 160;
+  let left = rect.left;
+  let top = rect.bottom + 10;
+  if (left + panelWidth > window.innerWidth - 12) left = window.innerWidth - panelWidth - 12;
+  if (top + panelHeight > window.innerHeight - 12) top = Math.max(12, rect.top - panelHeight - 10);
+  panel.style.left = `${Math.max(12, left)}px`;
+  panel.style.top = `${top}px`;
+}
+
+function toggleWeatherPanel(force) {
+  const panel = $("#weatherPanel");
+  const next = typeof force === "boolean" ? force : !weatherPanelOpen;
+  if (next === weatherPanelOpen) return;
+  weatherPanelOpen = next;
+  if (weatherPanelOpen) {
+    renderWeatherPanel();
+    panel.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => { panel.classList.add("is-open"); positionWeatherPanel(); });
+  } else {
+    panel.classList.remove("is-open");
+    panel.setAttribute("aria-hidden", "true");
   }
 }
 
@@ -1217,6 +1341,7 @@ function normalizeImportedSettings(source) {
     hasCustomVideo: Boolean(video),
     videoEnabled: Boolean(input.videoEnabled && video),
     parallaxEnabled: Boolean(input.parallaxEnabled),
+    faviconEnabled: input.faviconEnabled !== false,
     widgetSizes: {
       weather: clamp(sizes.weather, 75, 140, 100),
       bookmarks: clamp(sizes.bookmarks, 75, 140, 100),
@@ -1297,6 +1422,13 @@ function renderBookmarkSettings(content) {
   const layoutMode = makeSelect([["free", "Блоки независимо"], ["stack", "Одна вертикальная колонка слева"], ["custom", "Мой макет по сетке"]], settings.layoutMode || "free");
   layoutMode.addEventListener("change", () => setLayoutMode(layoutMode.value));
   section.append(makeRow("Расположение", "В режиме колонки погода и каждый сайт идут отдельной строкой.", layoutMode));
+  const favicons = makeToggle(settings.faviconEnabled !== false, "Показывать иконки сайтов");
+  favicons.input.addEventListener("change", async () => {
+    settings.faviconEnabled = favicons.input.checked;
+    renderBookmarks();
+    await saveSettings();
+  });
+  section.append(makeRow("Иконки сайтов", "Фавикон с сайта вместо буквы. Свой символ или картинка всегда важнее.", favicons.label));
   const editLayout = el("button", "drawer-button", "⌗  Растянуть и расставить по сетке");
   editLayout.type = "button";
   editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
@@ -1408,6 +1540,40 @@ function updateEngineButton() {
   const engine = ENGINES[settings.engine] || ENGINES.google;
   $("#engineButton").textContent = engine.mark;
   $("#engineButton").title = `Поиск: ${engine.label}`;
+}
+
+function setCaptionText(nextIndex) {
+  const caption = $("#searchCaption");
+  if (!caption) return;
+  captionIndex = nextIndex;
+  caption.classList.add("is-changing");
+  window.setTimeout(() => {
+    caption.textContent = SEARCH_CAPTIONS[captionIndex];
+    caption.classList.remove("is-changing");
+  }, 360);
+}
+
+// Следующая фраза — случайная, но никогда не повторяет текущую.
+function pickCaptionIndex() {
+  if (SEARCH_CAPTIONS.length < 2) return 0;
+  let next = captionIndex;
+  while (next === captionIndex) next = Math.floor(Math.random() * SEARCH_CAPTIONS.length);
+  return next;
+}
+
+function startCaptionRotation() {
+  const caption = $("#searchCaption");
+  if (!caption) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // При открытии вкладки фраза тоже случайная — не первая из списка.
+  captionIndex = Math.floor(Math.random() * SEARCH_CAPTIONS.length);
+  caption.textContent = SEARCH_CAPTIONS[captionIndex];
+  if (reduced || SEARCH_CAPTIONS.length < 2) return;
+  clearInterval(captionTimer);
+  captionTimer = window.setInterval(() => {
+    if (document.hidden || document.body.classList.contains("focus-mode")) return;
+    setCaptionText(pickCaptionIndex());
+  }, CAPTION_ROTATE_MS);
 }
 
 function snowSpriteSize(size) {
@@ -1682,8 +1848,18 @@ function setupEvents() {
   $("#drawerScrim").addEventListener("click", closeDrawer);
   $$('[data-open-settings]').forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); openDrawer(button.dataset.openSettings); }));
   $$(".widget[data-widget]").forEach((widget) => {
-    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); openDrawer(widget.dataset.widget); });
+    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); if (widget.dataset.widget === "weather") toggleWeatherPanel(false); openDrawer(widget.dataset.widget); });
     widget.addEventListener("keydown", (event) => { if (event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });
+  });
+  // Клик по погоде раскрывает прогноз на ближайшие часы. Двойной клик всё равно
+  // откроет настройки (см. выше), поэтому панель просто закрывается перед этим.
+  $(".weather-card").addEventListener("click", (event) => {
+    if (document.body.classList.contains("layout-editing") || document.body.classList.contains("drawer-open")) return;
+    if (event.detail > 1) return;
+    pendingNavigation = setTimeout(() => toggleWeatherPanel(), 220);
+  });
+  document.addEventListener("click", (event) => {
+    if (weatherPanelOpen && !event.target.closest("#weatherPanel") && !event.target.closest(".weather-card")) toggleWeatherPanel(false);
   });
   $("#bookmarkGrid").addEventListener("click", (event) => {
     if (document.body.classList.contains("layout-editing")) return;
@@ -1698,6 +1874,12 @@ function setupEvents() {
       try { if (/^https?:$/.test(new URL(url).protocol)) location.href = url; }
       catch { showToast("Проверь адрес закладки в настройках"); }
     }, 240);
+  });
+  // Клик по подписи под поиском сразу меняет фразу.
+  const caption = $("#searchCaption");
+  caption.addEventListener("click", () => setCaptionText(pickCaptionIndex()));
+  caption.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setCaptionText(pickCaptionIndex()); }
   });
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".search-area") && $(".engine-menu")) $(".engine-menu").remove();
@@ -1742,6 +1924,7 @@ function setupEvents() {
     resetIdleTimer(true);
     if (event.key === "Escape") {
       const hadDrawer = document.body.classList.contains("drawer-open");
+      toggleWeatherPanel(false);
       closeDrawer(); $(".engine-menu")?.remove();
       if (document.body.classList.contains("layout-editing")) toggleLayoutEditor(false);
       else if (!hadDrawer && document.body.classList.contains("focus-mode")) toggleFocusMode(false);
@@ -1763,6 +1946,7 @@ async function init() {
   renderAppearance();
   renderBookmarks();
   updateEngineButton();
+  startCaptionRotation();
   updateClock();
   updateWeather();
   $("#focusNote").value = settings.focusNote || "";
