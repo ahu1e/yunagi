@@ -1,3 +1,9 @@
+// Страховка волны появления (см. revealWhenWallpaperReady): волна стартует
+// только после готовности фона, поэтому если проверка почему-то не случится,
+// таймер всё равно раскроет страницу. Первый оператор файла: ошибки ниже
+// не должны оставлять пустой экран.
+setTimeout(() => document.body.classList.add("assets-ready"), 2000);
+
 const DEFAULTS = {
   bookmarks: [
     { name: "YouTube", url: "https://youtube.com", color: "#d34b4b" },
@@ -32,6 +38,7 @@ const DEFAULTS = {
     search: { x: 8, y: 10, w: 10, h: 0 }
   },
   clockDisplay: "both",
+  showCaption: true,
   seasonalMode: "auto",
   snowEnabled: false,
   snowIntensity: "normal",
@@ -229,11 +236,41 @@ function renderAppearance() {
   }
   updateWallpaperImage();
   scheduleWallpaperVideo();
+  applyCaptionVisibility();
   document.body.classList.toggle("parallax-enabled", parallaxActive);
   if (!parallaxActive) {
     document.documentElement.style.setProperty("--parallax-x", "0px");
     document.documentElement.style.setProperty("--parallax-y", "0px");
   }
+}
+
+// Появление страницы ждёт готовности фона. Пока класс assets-ready не стоит,
+// CSS держит все анимации появления на паузе в нулевой точке (см. styles.css):
+// вкладка остаётся тёмной, а потом фон и интерфейс проступают вместе —
+// картинка не догружается уже поверх «появившейся» страницы и не выскакивает
+// куском. Страховочный таймер в начале файла гарантирует, что волна стартует
+// даже если эта функция почему-то не выполнится.
+function revealWhenWallpaperReady() {
+  if (document.body.classList.contains("assets-ready")) return;
+  if (reducedMotion.matches) { document.body.classList.add("assets-ready"); return; }
+  let waiting = 0;
+  const ready = () => {
+    waiting = Math.max(0, waiting - 1);
+    if (!waiting) document.body.classList.add("assets-ready");
+  };
+  const track = (promise) => { waiting += 1; promise.then(ready, ready); };
+
+  const wallpaper = $(".wallpaper");
+  const background = wallpaper ? getComputedStyle(wallpaper).backgroundImage : "";
+  const match = background.match(/url\((['"]?)(.*?)\1\)/);
+  if (match && match[2]) {
+    const image = new Image();
+    track(new Promise((resolve) => { image.addEventListener("load", resolve); image.addEventListener("error", resolve); image.src = match[2]; }));
+    if (image.complete) ready();
+  }
+  // Свои обои подставляются отдельным blob-объектом — дожидаемся и их.
+  if (settings.customWallpaper && wallpaperLoadingPromise) track(wallpaperLoadingPromise);
+  if (!waiting) document.body.classList.add("assets-ready");
 }
 
 const WIDGET_LAYOUT_DEFAULTS = {
@@ -1187,6 +1224,13 @@ function renderGeneralSettings(content) {
   const engine = makeSelect(Object.entries(ENGINES).map(([key, item]) => [key, item.label]), settings.engine);
   engine.addEventListener("change", () => { settings.engine = engine.value; updateEngineButton(); saveSettings(); });
   behavior.append(makeRow("Поисковая система", "Используется для поиска из строки на странице.", engine));
+  const captionToggle = makeToggle(settings.showCaption !== false, "Показывать подпись под строкой поиска");
+  captionToggle.input.addEventListener("change", async () => {
+    settings.showCaption = captionToggle.input.checked;
+    renderAppearance();
+    await saveSettings();
+  });
+  behavior.append(makeRow("Подпись под поиском", "Нижняя строка со сменной фразой. Можно спрятать — поиск от этого не пострадает.", captionToggle.label));
   const timeFormat = makeSelect([["24", "24 часа"], ["12", "12 часов"]], settings.timeFormat);
   timeFormat.addEventListener("change", () => { settings.timeFormat = timeFormat.value; updateClock(); saveSettings(); });
   behavior.append(makeRow("Формат времени", "Выбери привычный формат часов.", timeFormat));
@@ -1542,6 +1586,101 @@ function updateEngineButton() {
   $("#engineButton").title = `Поиск: ${engine.label}`;
 }
 
+// ---------- Проверка обновлений ----------
+// Наведение на метку GitHub внизу слева показывает, отстала ли установленная
+// версия от репозитория: сравниваем manifest.version локально и на GitHub.
+// Ветки гоняем обе (релизы живут в main, разработка — в dev), результат
+// кэшируем, чтобы новая вкладка не дёргала сеть каждый раз.
+const UPDATE_BRANCHES = ["main", "dev"];
+const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_CHECK_KEY = "yunagi-update-check";
+let updateState = { state: "unknown", local: "", remote: "" };
+
+// "1.2.10" свежее "1.2.9" — сравниваем по числовым частям, не строкой.
+function compareVersions(a, b) {
+  const left = String(a || "").split(".");
+  const right = String(b || "").split(".");
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    const difference = (Number(left[i]) || 0) - (Number(right[i]) || 0);
+    if (difference) return difference > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+async function readLocalVersion() {
+  if (globalThis.chrome?.runtime?.getManifest) return chrome.runtime.getManifest().version || "";
+  try {
+    const response = await fetch("manifest.json", { cache: "no-cache" });
+    if (response.ok) return (await response.json()).version || "";
+  } catch { /* файла может не быть — тогда просто не показываем статус */ }
+  return "";
+}
+
+async function fetchRemoteVersion(branch) {
+  try {
+    const response = await fetch(`https://raw.githubusercontent.com/ahu1e/yunagi/${branch}/manifest.json`, { cache: "no-cache" });
+    if (!response.ok) return "";
+    return (await response.json()).version || "";
+  } catch { /* офлайн — ветка просто пропадёт из сравнения */ }
+  return "";
+}
+
+function readUpdateCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY) || "null");
+    return cached && cached.state ? cached : null;
+  } catch { return null; }
+}
+
+// Статус в нижней левой метке: «yunagi» — пока не проверили, иначе вердикт.
+function renderBrandStatus() {
+  const mark = $(".brand-mark");
+  const latin = $(".brand-name-latin");
+  if (!mark || !latin) return;
+  const hasUpdate = updateState.state === "update";
+  latin.textContent = hasUpdate
+    ? "new update available"
+    : updateState.state === "actual" ? "up to date" : "yunagi";
+  mark.classList.toggle("is-outdated", hasUpdate);
+  let hint = "";
+  if (hasUpdate && updateState.remote) hint = ` · есть обновление ${updateState.remote} (у тебя ${updateState.local || "?"})`;
+  else if (updateState.state === "actual" && updateState.local) hint = ` · версия ${updateState.local} актуальна`;
+  mark.title = `Открыть GitHub${hint}`;
+  mark.setAttribute("aria-label", `夕凪 — открыть репозиторий yunagi на GitHub${hint}`);
+}
+
+async function checkForUpdates() {
+  const cached = readUpdateCache();
+  if (cached) {
+    updateState = { state: cached.state, local: cached.local || "", remote: cached.remote || "" };
+    renderBrandStatus();
+    if (Date.now() - (cached.at || 0) < UPDATE_CHECK_TTL_MS) return; // проверили недавно
+  }
+  const local = await readLocalVersion();
+  let remote = "";
+  for (const version of await Promise.all(UPDATE_BRANCHES.map(fetchRemoteVersion))) {
+    if (version && (!remote || compareVersions(version, remote) > 0)) remote = version;
+  }
+  if (!local || !remote) { renderBrandStatus(); return; } // нет сети — остаёмся на кэше
+  updateState = { state: compareVersions(remote, local) > 0 ? "update" : "actual", local, remote };
+  try {
+    localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify({ ...updateState, at: Date.now() }));
+  } catch { /* приватный режим — просто не кэшируем */ }
+  renderBrandStatus();
+}
+
+// Подпись под строкой поиска включается-выключается в настройках.
+// Пока она скрыта — нечего ловить фокусом и крутить смену фраз.
+function applyCaptionVisibility() {
+  const caption = $("#searchCaption");
+  const visible = settings.showCaption !== false;
+  document.body.classList.toggle("hide-caption", !visible);
+  if (!caption) return;
+  caption.setAttribute("aria-hidden", String(!visible));
+  caption.tabIndex = visible ? 0 : -1;
+}
+
 function setCaptionText(nextIndex) {
   const caption = $("#searchCaption");
   if (!caption) return;
@@ -1571,7 +1710,7 @@ function startCaptionRotation() {
   if (reduced || SEARCH_CAPTIONS.length < 2) return;
   clearInterval(captionTimer);
   captionTimer = window.setInterval(() => {
-    if (document.hidden || document.body.classList.contains("focus-mode")) return;
+    if (document.hidden || document.body.classList.contains("focus-mode") || document.body.classList.contains("hide-caption")) return;
     setCaptionText(pickCaptionIndex());
   }, CAPTION_ROTATE_MS);
 }
@@ -1941,9 +2080,13 @@ function setupEvents() {
 }
 
 async function init() {
-  setTimeout(() => document.body.classList.remove("page-enter"), 1200);
+  // Класс снимаем только когда вся волна появления отыграна:
+  // последний блок стартует с задержкой .42s и живёт .95s — 1600ms с запасом.
+  setTimeout(() => document.body.classList.remove("page-enter"), 1600);
+  checkForUpdates(); // статус версии для метки GitHub — не ждём, пусть летит фоном
   await loadSettings();
   renderAppearance();
+  revealWhenWallpaperReady();
   renderBookmarks();
   updateEngineButton();
   startCaptionRotation();

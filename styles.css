@@ -27,7 +27,8 @@
 
   /* Движение — одна кривая на всё */
   --ease: cubic-bezier(.32, .72, 0, 1);       /* состояния */
-  --ease-out: cubic-bezier(.16, 1, .3, 1);    /* появление */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);    /* появление элемента */
+  --ease-appear: cubic-bezier(.4, 0, .2, 1);  /* появление страницы: без рывка в начале */
   --t-fast: .18s;
   --t: .34s;
   --t-slow: .7s;
@@ -38,6 +39,7 @@
   --faint: rgba(255, 255, 255, .44);
   --hairline: rgba(255, 255, 255, .13);
   --accent: #f3eee3;
+  --signal-update: #ffcf8f;  /* «есть обновление» — тёплый сигнал, не тревога */
   --glass-edge: rgba(255, 255, 255, .22);
 
   /* Глубина */
@@ -144,21 +146,47 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 }
 
 /* ---------- 5. Появление ----------
+   Одна волна на весь экран: сначала проступает фон, за ним — холст,
+   блоки всплывают по очереди. Прозрачность и движение разведены в две
+   анимации: кривая --ease-out слишком резкая, ею гасить opacity —
+   страница успевает «всплыть», пока её ещё не видно.
    translate/scale — независимые свойства трансформации: они складываются
    с transform: scale(var(--layout-scale)), поэтому не сбивают масштаб виджета. */
 @keyframes rise {
-  from { opacity: 0; translate: 0 18px; scale: .97; }
-  to   { opacity: 1; translate: 0 0;    scale: 1; }
+  from { translate: 0 18px; scale: .97; }
+  to   { translate: 0 0;    scale: 1; }
 }
-body.page-enter [data-layout-item="weather"]  { animation: rise .8s var(--ease-out) 0s both; }
-body.page-enter [data-layout-item="date"]     { animation: rise .8s var(--ease-out) .06s both; }
-body.page-enter [data-layout-item="bookmarks"]{ animation: rise .8s var(--ease-out) .12s both; }
-body.page-enter [data-layout-item="clock"]    { animation: rise .8s var(--ease-out) .18s both; }
-body.page-enter .search-area                  { animation: rise .9s var(--ease-out) .26s both; }
-body.page-enter .brand-mark                   { animation: rise .8s var(--ease-out) .34s both; }
+@keyframes soft-in { from { opacity: 0; } to { opacity: 1; } }
+
+body.page-enter .wallpaper,
+body.page-enter .wallpaper-shade         { animation: soft-in 1s var(--ease-appear) both; }
+body.page-enter .wallpaper-video.is-active { animation: soft-in 1s var(--ease-appear) both; }
+body.page-enter .canvas                  { animation: soft-in .85s var(--ease-appear) .06s both; }
+
+body.page-enter [data-layout-item="weather"]  { animation: rise .95s var(--ease) 0s both; }
+body.page-enter [data-layout-item="date"]     { animation: rise .95s var(--ease) .07s both; }
+body.page-enter [data-layout-item="bookmarks"]{ animation: rise .95s var(--ease) .14s both; }
+body.page-enter [data-layout-item="clock"]    { animation: rise .95s var(--ease) .21s both; }
+body.page-enter .search-area                  { animation: rise 1s var(--ease) .28s both; }
+body.page-enter .brand-mark                   { animation: rise .95s var(--ease) .35s both; }
 body.page-enter .settings-trigger,
 body.page-enter .focus-trigger,
-body.page-enter .layout-trigger               { animation: rise .8s var(--ease-out) .4s both; }
+body.page-enter .layout-trigger               { animation: rise .95s var(--ease) .42s both; }
+
+/* Фон ждёт своей очереди: волна стоит на паузе в нулевой точке (fill: both
+   держит состояние from), пока страница не убедится, что обои декодированы.
+   Иначе 3.8 МБ картинки догрузятся уже поверх «появившейся» вкладки и
+   выскочат куском. Класс assets-ready ставит newtab.js (см. revealWhenWallpaperReady)
+   и страховочный таймер — белого экрана не будет даже при сбое скрипта. */
+body.page-enter:not(.assets-ready) .wallpaper,
+body.page-enter:not(.assets-ready) .wallpaper-shade,
+body.page-enter:not(.assets-ready) .wallpaper-video.is-active,
+body.page-enter:not(.assets-ready) .canvas,
+body.page-enter:not(.assets-ready) [data-layout-item],
+body.page-enter:not(.assets-ready) .brand-mark,
+body.page-enter:not(.assets-ready) .settings-trigger,
+body.page-enter:not(.assets-ready) .focus-trigger,
+body.page-enter:not(.assets-ready) .layout-trigger { animation-play-state: paused; }
 
 /* ---------- 6. Материал ---------- */
 .glass {
@@ -644,12 +672,15 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
   font-weight: 600;
   letter-spacing: .16em;
   text-shadow: 0 1px 9px rgba(0, 0, 0, .35);
-  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease);
+  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease), visibility var(--t);
 }
 .search-caption.is-changing { opacity: 0; transform: translateY(-3px); }
 /* Подпись кликабельна: клик — сразу другая фраза. */
 .search-caption { cursor: pointer; }
 .search-caption:hover { color: rgba(255, 255, 255, .9); }
+/* Настройка «Подпись под поиском» выключена — строка исчезает мягко,
+   а не щёлкает: visibility уходит в конец перехода, пока идёт затухание. */
+body.hide-caption .search-caption { opacity: 0; visibility: hidden; pointer-events: none; }
 
 /* ---------- 12. Бренд и угловые кнопки ---------- */
 .brand-mark {
@@ -667,9 +698,38 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
   text-shadow: 0 1px 8px rgba(0, 0, 0, .3);
 }
 .brand-name { position: relative; display: grid; min-width: 56px; min-height: 22px; align-items: center; }
-.brand-name-kanji, .brand-name-latin { grid-area: 1 / 1; transition: opacity .28s var(--ease), transform .28s var(--ease); }
-.brand-name-kanji { color: var(--accent); font-size: 15px; font-weight: 500; letter-spacing: .12em; }
+.brand-name-kanji, .brand-name-latin {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  transition: opacity .28s var(--ease), transform .28s var(--ease);
+}
+.brand-name-kanji {
+  position: relative;
+  justify-self: start;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: .12em;
+}
 .brand-name-latin { color: var(--accent); opacity: 0; transform: translateY(4px); }
+/* Статус версии приходит из JS (см. checkForUpdates): при наведении на метку
+   вместо «yunagi» появляется, отстала ли установленная версия от GitHub.
+   Точка-индикатор висит у самого иероглифа (бокс .brand-name растянут под
+   длинный текст — к нему её цеплять нельзя) и тает вместе с ним при hover. */
+.brand-mark.is-outdated .brand-name-latin { color: var(--signal-update); }
+.brand-mark.is-outdated .brand-name-kanji::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--signal-update);
+  box-shadow: 0 0 0 3px rgba(255, 207, 143, .16);
+  animation: update-pulse 2.6s ease-in-out infinite;
+}
+@keyframes update-pulse { 50% { opacity: .35; } }
 .brand-mark:hover .brand-name-kanji, .brand-mark:focus-visible .brand-name-kanji { opacity: 0; transform: translateY(-4px); }
 .brand-mark:hover .brand-name-latin, .brand-mark:focus-visible .brand-name-latin { opacity: 1; transform: translateY(0); }
 .brand-mark:hover, .brand-mark:focus-visible { color: white; }
