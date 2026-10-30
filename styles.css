@@ -88,10 +88,12 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 
 .wallpaper {
   z-index: -4;
-  background: url("Image.png") center center / cover no-repeat;
+  background: url("Image.webp") center center / cover no-repeat;
   transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
   filter: brightness(var(--wallpaper-brightness, .76));
-  transition: filter .25s ease, transform .35s var(--ease);
+  /* Без transition по filter: слайдер яркости шлёт значения непрерывно,
+     а анимация filter на полноэкранном слое перерисовывала бы его каждый кадр. */
+  transition: transform .35s var(--ease);
 }
 .wallpaper-video {
   position: fixed;
@@ -104,7 +106,7 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
   transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
   filter: brightness(var(--wallpaper-brightness, .76));
-  transition: opacity .7s ease, transform .35s var(--ease), filter .25s ease;
+  transition: opacity .7s ease, transform .35s var(--ease);
 }
 .wallpaper-video.is-active { opacity: 1; }
 .parallax-enabled .wallpaper, .parallax-enabled .wallpaper-video { will-change: transform; }
@@ -462,6 +464,23 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
   object-fit: contain;
   padding: 2px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+}
+/* --- Стиль значков: монохром и «тонированные» (переключается в настройках) ---
+   Монохром: filter на плитке красит разом всё содержимое — градиент фона,
+   фавикон, свою картинку и эмодзи. Тонированные: оверлей с mix-blend-mode:
+   color перекрашивает всё в оттенок --accent, беря яркость из фона, — как
+   tinted-иконки в iOS. Важно: у плитки здесь НЕ должно быть filter — он
+   изолирует blend-группу, и оверлей перестаёт смешиваться. */
+body.icons-mono .bookmark-icon { filter: grayscale(1); }
+body.icons-tint .bookmark-icon { position: relative; }
+body.icons-tint .bookmark-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent, #9db8c4);
+  mix-blend-mode: color;
+  pointer-events: none;
 }
 .empty-bookmarks {
   padding: 16px 4px;
@@ -948,46 +967,104 @@ body.idle-mode .search-area,
 body.idle-mode .focus-panel { opacity: 0; pointer-events: none; }
 
 /* ---------- 15. Панель настроек ---------- */
+/* Панель — широкое стеклянное окно по центру: слева навигация по разделам,
+   справа content. Фон за окном блюрится целиком (см. .drawer-scrim). */
 .drawer-scrim {
   position: fixed;
   z-index: 10;
   inset: 0;
-  background: rgba(8, 9, 12, .3);
+  background: rgba(8, 9, 12, .32);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .4s ease;
+  -webkit-backdrop-filter: blur(0px);
+  backdrop-filter: blur(0px);
+  transition: opacity .4s ease, -webkit-backdrop-filter .4s ease, backdrop-filter .4s ease;
 }
-body.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+body.drawer-open .drawer-scrim {
+  opacity: 1;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(26px) saturate(1.1);
+  backdrop-filter: blur(26px) saturate(1.1);
+}
 
 .settings-drawer {
   position: fixed;
   z-index: 11;
-  top: 16px;
-  right: 16px;
-  bottom: 16px;
+  top: 50%;
+  left: 50%;
   display: flex;
-  width: min(420px, calc(100vw - 32px));
+  width: min(880px, calc(100vw - 48px));
+  height: min(660px, calc(100dvh - 48px));
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 26px;
-  background: linear-gradient(155deg, rgba(34, 37, 39, .95), rgba(20, 23, 25, .94));
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 30px;
+  background: linear-gradient(155deg, rgba(40, 43, 46, .74), rgba(17, 20, 23, .82));
   box-shadow: var(--shadow-float), 0 28px 90px -30px rgba(0, 0, 0, .6);
   -webkit-backdrop-filter: blur(22px) saturate(1.25);
   backdrop-filter: blur(22px) saturate(1.25);
-  transform: translateX(calc(100% + 32px));
-  transition: transform .5s var(--ease);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -46%) scale(.94);
+  transition: transform .45s var(--ease), opacity .3s ease;
 }
-body.drawer-open .settings-drawer { transform: translateX(0); }
-.drawer-topline { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 24px 26px 15px; }
+body.drawer-open .settings-drawer {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.drawer-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 216px minmax(0, 1fr);
+  min-height: 0;
+}
+.drawer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px 18px;
+  border-right: 1px solid rgba(255, 255, 255, .08);
+  overflow: auto;
+}
+.drawer-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: rgba(255, 255, 255, .66);
+  font-size: 13.5px;
+  font-weight: 550;
+  letter-spacing: .01em;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+.drawer-nav-item:hover { background: rgba(255, 255, 255, .06); color: rgba(255, 255, 255, .9); }
+.drawer-nav-item.is-active { background: rgba(255, 255, 255, .11); color: #fff; }
+.drawer-nav-item:focus-visible { outline: 2px solid rgba(255, 255, 255, .7); outline-offset: -2px; }
+.drawer-nav-icon { display: inline-flex; flex: 0 0 auto; color: inherit; }
+.drawer-nav-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.drawer-topline { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 22px 28px 12px; }
 .drawer-kicker { color: var(--faint); font-size: var(--fs-label); font-weight: 700; letter-spacing: .16em; }
 .close-drawer {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: 11px;
   background: rgba(255, 255, 255, .07);
   color: rgba(255, 255, 255, .8);
   font-size: 21px;
@@ -998,38 +1075,54 @@ body.drawer-open .settings-drawer { transform: translateX(0); }
 .close-drawer:hover { background: rgba(255, 255, 255, .18); }
 .close-drawer:active { transform: scale(.93); }
 .drawer-scroll {
+  min-height: 0;
   overflow: auto;
-  padding: 10px 26px 28px;
+  padding: 8px 32px 32px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, .22) transparent;
 }
-.drawer-title { margin: 0; color: #fff; font-size: 28px; font-weight: 500; letter-spacing: -.03em; }
-.drawer-description { margin: 8px 0 26px; color: var(--muted); font-size: var(--fs-body); line-height: 1.65; }
+.drawer-title { margin: 0; color: #fff; font-size: 30px; font-weight: 500; letter-spacing: -.03em; }
+.drawer-description { margin: 8px 0 26px; max-width: 52ch; color: var(--muted); font-size: var(--fs-body); line-height: 1.65; }
 
-.setting-section { margin: 0 0 24px; }
+/* Секции — «сгруппированные» стеклянные карточки, как в системных настройках:
+   заголовок-ярлык внутри, строки разделены тонкими линиями. */
+.setting-section {
+  margin: 0 0 20px;
+  padding: 0 20px 4px;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .045);
+}
 .section-label {
   display: block;
-  margin: 0 0 12px;
+  padding: 16px 0 4px;
   color: var(--faint);
-  font-size: var(--fs-label);
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: .14em;
   text-transform: uppercase;
 }
 .setting-row {
   display: flex;
-  min-height: 56px;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  gap: 20px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
 .setting-row:last-child { border-bottom: 0; }
-.setting-label { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: rgba(255, 255, 255, .92); font-size: var(--fs-body); }
-.setting-help { color: var(--faint); font-size: var(--fs-label); line-height: 1.5; }
+/* Прямые дети секции мимо строк (кнопки, заметки, редактор закладок) — отступы внутри карточки */
+.setting-section > .drawer-button,
+.setting-section > .button-row,
+.setting-section > .setting-help,
+.setting-section > .bookmark-edit-list { margin: 10px 0 14px; }
+.setting-section > .drawer-button:last-child { margin-bottom: 16px; }
+.setting-label { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: rgba(255, 255, 255, .92); font-size: 14px; }
+.setting-help { color: var(--faint); font-size: 12px; line-height: 1.5; }
 .setting-control {
   display: flex;
-  min-width: 168px;
+  min-width: 186px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
@@ -1037,65 +1130,80 @@ body.drawer-open .settings-drawer { transform: translateX(0); }
   color: var(--muted);
   font-size: var(--fs-label);
 }
-.setting-value { width: 40px; color: var(--muted); font-size: var(--fs-label); text-align: right; font-variant-numeric: tabular-nums; }
+.setting-value { min-width: 42px; color: rgba(255, 255, 255, .78); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .setting-control select,
 .setting-control input[type="text"],
 .setting-control input[type="url"] {
-  width: 166px;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
+  width: 190px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
   outline: none;
   background: rgba(255, 255, 255, .07);
   color: white;
-  font-size: 11.5px;
-  transition: border-color var(--t) ease, background-color var(--t) ease;
+  font-size: 12.5px;
+  transition: border-color var(--t) ease, background-color var(--t) ease, box-shadow var(--t) ease;
+}
+.setting-control select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,.62)' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px;
+  cursor: pointer;
 }
 .setting-control select:focus,
 .setting-control input[type="text"]:focus,
-.setting-control input[type="url"]:focus { border-color: rgba(255, 255, 255, .4); background: rgba(255, 255, 255, .1); }
+.setting-control input[type="url"]:focus {
+  border-color: rgba(255, 255, 255, .42);
+  background-color: rgba(255, 255, 255, .1);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .07);
+}
 .setting-control select option { background: #23262a; color: white; }
 .setting-control select:disabled { opacity: .42; cursor: not-allowed; }
 .setting-control input::placeholder { color: var(--faint); }
 
-/* Ползунок: тонкая дорожка и светлый «стеклянный» бегунок */
+/* Ползунок: широкая дорожка и светлый бегунок с мягкой тенью */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 116px;
-  height: 4px;
+  width: 150px;
+  height: 5px;
   border-radius: 999px;
   outline: none;
-  background: rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .16);
   cursor: pointer;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border: 0;
   border-radius: 50%;
   background: #f4f1ea;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .5), 0 0 0 0 rgba(255, 255, 255, .25);
   cursor: pointer;
-  transition: transform var(--t-fast) var(--ease);
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) ease;
 }
-input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.12); box-shadow: 0 2px 7px rgba(0, 0, 0, .5), 0 0 0 5px rgba(255, 255, 255, .08); }
+input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.22); }
 input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border: 0;
   border-radius: 50%;
   background: #f4f1ea;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .5);
   cursor: pointer;
 }
 input[type="range"]:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); outline-offset: 4px; }
 
-.toggle-switch { position: relative; display: inline-flex; width: 44px; height: 26px; flex: 0 0 44px; cursor: pointer; }
+.toggle-switch { position: relative; display: inline-flex; width: 46px; height: 27px; flex: 0 0 46px; cursor: pointer; }
 .toggle-switch input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
 .toggle-track {
   position: absolute;
@@ -1109,16 +1217,18 @@ input[type="range"]:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); 
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .78);
+  background: rgba(255, 255, 255, .85);
   box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
   content: "";
-  transition: transform var(--t) var(--ease), background-color var(--t) var(--ease);
+  transition: transform var(--t) var(--ease), background-color var(--t) var(--ease), width var(--t-fast) ease, left var(--t-fast) ease;
 }
-.toggle-switch input:checked + .toggle-track { border-color: rgba(255, 255, 255, .5); background: rgba(236, 240, 247, .38); }
-.toggle-switch input:checked + .toggle-track::after { background: #fff; transform: translateX(18px); }
+.toggle-switch:active .toggle-track::after { width: 22px; }
+.toggle-switch input:checked + .toggle-track { border-color: rgba(255, 255, 255, .55); background: rgba(240, 240, 244, .4); }
+.toggle-switch input:checked + .toggle-track::after { background: #fff; transform: translateX(19px); }
+.toggle-switch input:checked:active + .toggle-track::after { transform: translateX(16px); }
 .toggle-switch input:focus-visible + .toggle-track { outline: 2px solid rgba(255, 255, 255, .85); outline-offset: 3px; }
 
 .wide-control { display: block; margin-top: 10px; }
@@ -1126,13 +1236,13 @@ input[type="range"]:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); 
 
 .drawer-button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 0 15px;
+  padding: 0 16px;
   border: 1px solid var(--hairline);
-  border-radius: var(--r-control);
+  border-radius: 12px;
   background: rgba(255, 255, 255, .08);
   color: rgba(255, 255, 255, .9);
   font-size: var(--fs-caption);
@@ -1152,44 +1262,50 @@ input[type="range"]:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); 
 .drawer-button.danger { color: #ffbcbc; }
 .button-row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
 
-/* Редактор закладок */
+/* Редактор закладок: каждый сайт — вложенная карточка внутри секции */
 .bookmark-edit-list { display: block; }
-.bookmark-edit-item { margin-bottom: 14px; }
+.bookmark-edit-item {
+  margin-bottom: 10px;
+  padding: 12px 14px 13px;
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .04);
+}
 .bookmark-edit-row { display: grid; grid-template-columns: 1fr 1.35fr 36px; gap: 8px; margin-bottom: 8px; }
 .bookmark-edit-row input {
   width: 100%;
   min-width: 0;
-  height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 11px;
   outline: none;
-  background: rgba(255, 255, 255, .07);
+  background: rgba(255, 255, 255, .06);
   color: white;
   font-size: var(--fs-label);
-  transition: border-color var(--t) ease;
+  transition: border-color var(--t) ease, background-color var(--t) ease;
 }
-.bookmark-edit-row input:focus { border-color: rgba(255, 255, 255, .42); }
+.bookmark-edit-row input:focus { border-color: rgba(255, 255, 255, .42); background: rgba(255, 255, 255, .09); }
 .bookmark-edit-tools { display: flex; align-items: center; gap: 7px; margin-top: 6px; }
 .bookmark-edit-tools input[type="text"] {
   min-width: 0;
-  height: 32px;
+  height: 34px;
   flex: 1;
-  padding: 0 9px;
-  border: 1px solid var(--hairline);
-  border-radius: 9px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 10px;
   outline: none;
-  background: rgba(255, 255, 255, .06);
+  background: rgba(255, 255, 255, .05);
   color: white;
   font-size: var(--fs-label);
 }
 .bookmark-edit-tools input[type="text"]:focus { border-color: rgba(255, 255, 255, .42); }
 .bookmark-edit-tools input[type="color"] {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 3px;
-  border: 1px solid var(--hairline);
-  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 10px;
   background: rgba(255, 255, 255, .07);
   cursor: pointer;
 }
@@ -1348,26 +1464,7 @@ body.layout-editing .layout-trigger,
 body.layout-editing .settings-trigger,
 body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
 
-/* ---------- 18. Сезон ---------- */
-.seasonal-decor { position: fixed; z-index: 1; inset: 0; display: none; overflow: hidden; pointer-events: none; }
-body.season-halloween .seasonal-decor { display: block; }
-body.season-halloween .glass {
-  border-color: rgba(240, 192, 154, .24);
-  box-shadow: 0 16px 40px -18px rgba(20, 10, 2, .6), 0 0 34px rgba(255, 140, 40, .08), inset 0 1px 0 rgba(255, 214, 160, .22);
-}
-.seasonal-bat, .seasonal-pumpkin { position: absolute; display: block; opacity: .6; }
-.seasonal-bat { color: #25212b; font-size: 26px; animation: bat-drift 9s ease-in-out infinite alternate; }
-.seasonal-bat-one { top: 18%; left: 34%; }
-.seasonal-bat-two { top: 31%; right: 24%; font-size: 20px; animation-delay: -3s; }
-.seasonal-pumpkin { bottom: 30px; font-size: 22px; }
-.seasonal-pumpkin-one { left: 44%; }
-.seasonal-pumpkin-two { right: 44%; font-size: 18px; }
-@keyframes bat-drift {
-  from { transform: translate3d(-8px, 0, 0) rotate(-4deg); }
-  to   { transform: translate3d(10px, 7px, 0) rotate(5deg); }
-}
-
-/* ---------- 19. Адаптив ---------- */
+/* ---------- 18. Адаптив ---------- */
 @media (max-width: 640px) {
   :root { --gutter-x: 16px; --gutter-y: 16px; }
   .canvas { padding: var(--gutter-y) var(--gutter-x); }
@@ -1391,7 +1488,18 @@ body.season-halloween .glass {
   .layout-edit-bar { bottom: 10px; gap: 8px; padding: 9px; justify-content: center; flex-wrap: wrap; width: calc(100vw - 24px); }
   .layout-edit-bar > span { width: 100%; text-align: center; }
   .layout-edit-bar .drawer-button { min-height: 34px; padding: 0 12px; }
-  .settings-drawer { top: 10px; right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+  .settings-drawer { width: calc(100vw - 20px); height: calc(100dvh - 20px); }
+  /* На узких экранах боковая навигация превращается в ленту чипов сверху */
+  .drawer-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .drawer-nav {
+    flex-direction: row;
+    gap: 6px;
+    padding: 4px 14px 10px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    overflow-x: auto;
+  }
+  .drawer-nav-item { flex: 0 0 auto; padding: 9px 13px; }
   .drawer-topline { padding: 20px 20px 13px; }
   .drawer-scroll { padding: 8px 20px 24px; }
   .drawer-title { font-size: 24px; }

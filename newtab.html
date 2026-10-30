@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#17171b">
     <title>yunagi</title>
-    <!-- Обои (3.8 МБ) качаются с первого кадра: к моменту появления интерфейса
+    <!-- Обои качаются с первого кадра: к моменту появления интерфейса
          фон уже готов, и страница проявляется одной волной, без «выскакивания» картинки. -->
-    <link rel="preload" href="Image.png" as="image" fetchpriority="high">
+    <link rel="preload" href="Image.webp" as="image" fetchpriority="high">
+    <!-- Подсказки соединений: фавиконы закладок и погода — первым делом после открытия вкладки. -->
+    <link rel="preconnect" href="https://www.google.com">
+    <link rel="preconnect" href="https://api.met.no" crossorigin>
+    <link rel="preconnect" href="https://geocoding-api.open-meteo.com" crossorigin>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body class="page-enter">
@@ -57,13 +61,6 @@
         <span class="search-caption" id="searchCaption" role="button" tabindex="0" title="Нажми, чтобы сменить фразу" aria-label="Подпись. Нажми, чтобы сменить фразу">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
       </section>
 
-      <div class="seasonal-decor" id="seasonalDecor" aria-hidden="true">
-        <span class="seasonal-bat seasonal-bat-one">🦇</span>
-        <span class="seasonal-bat seasonal-bat-two">🦇</span>
-        <span class="seasonal-pumpkin seasonal-pumpkin-one">🎃</span>
-        <span class="seasonal-pumpkin seasonal-pumpkin-two">🎃</span>
-      </div>
-
       <section class="focus-panel glass" id="focusPanel" aria-label="Режим фокуса" aria-hidden="true">
         <span class="focus-kicker">yunagi / focus</span>
         <h1>Один момент за раз.</h1>
@@ -111,7 +108,10 @@
     <div class="drawer-scrim" id="drawerScrim"></div>
     <aside class="settings-drawer" id="settingsDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
       <div class="drawer-topline"><span class="drawer-kicker">yunagi / personalize</span><button class="close-drawer" id="closeDrawer" type="button" aria-label="Закрыть настройки">×</button></div>
-      <div class="drawer-scroll" id="drawerContent"></div>
+      <div class="drawer-body">
+        <nav class="drawer-nav" id="drawerNav" aria-label="Разделы настроек"></nav>
+        <div class="drawer-scroll" id="drawerContent"></div>
+      </div>
     </aside>
 
     <script src="newtab.js"></script>

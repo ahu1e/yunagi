@@ -29,6 +29,7 @@ const DEFAULTS = {
   parallaxEnabled: false,
   widgetSizes: { weather: 100, bookmarks: 100, date: 100, clock: 100 },
   faviconEnabled: true,
+  iconStyle: "color",
   layoutMode: "free",
   widgetLayout: {
     weather: { x: 1, y: 1, w: 2, h: 0 },
@@ -39,7 +40,6 @@ const DEFAULTS = {
   },
   clockDisplay: "both",
   showCaption: true,
-  seasonalMode: "auto",
   snowEnabled: false,
   snowIntensity: "normal",
   snowSchedule: false,
@@ -245,7 +245,10 @@ function flushPendingSave() {
   saveSettings();
 }
 
-function renderAppearance() {
+// Дешёвая часть внешнего вида — только CSS-переменные и класс параллакса.
+// Вызывается на каждый тик слайдера (input): перетаскивание яркости не должно
+// дергать обои, видео и тему — для этого есть полная renderAppearance().
+function applyAppearanceVars() {
   const brightness = Number(settings.brightness) || DEFAULTS.brightness;
   const shade = Number(settings.shade) || 0;
   const scale = Number(settings.scale) || 100;
@@ -253,6 +256,16 @@ function renderAppearance() {
   document.documentElement.style.setProperty("--wallpaper-brightness", String(brightness / 100));
   document.documentElement.style.setProperty("--wallpaper-shade", String(shade / 100));
   document.documentElement.style.setProperty("--wallpaper-scale", String((scale / 100) * (parallaxActive ? 1.025 : 1)));
+  document.body.classList.toggle("parallax-enabled", parallaxActive);
+  if (!parallaxActive) {
+    document.documentElement.style.setProperty("--parallax-x", "0px");
+    document.documentElement.style.setProperty("--parallax-y", "0px");
+  }
+  applyIconStyle();
+}
+
+function renderAppearance() {
+  applyAppearanceVars();
   updateTheme();
   scheduleWidgetLayout();
   for (const widget of ["weather", "bookmarks", "date", "clock"]) {
@@ -262,11 +275,15 @@ function renderAppearance() {
   updateWallpaperImage();
   scheduleWallpaperVideo();
   applyCaptionVisibility();
-  document.body.classList.toggle("parallax-enabled", parallaxActive);
-  if (!parallaxActive) {
-    document.documentElement.style.setProperty("--parallax-x", "0px");
-    document.documentElement.style.setProperty("--parallax-y", "0px");
-  }
+}
+
+// Стиль значков закладок: color — обычные цветные, mono — обесцвеченные,
+// tint — один оттенок на все значки (как tinted-иконки в iOS).
+// Режимы рисуются CSS по классам на body, разметка значков не меняется.
+function applyIconStyle() {
+  const mode = ["mono", "tint"].includes(settings.iconStyle) ? settings.iconStyle : "color";
+  document.body.classList.toggle("icons-mono", mode === "mono");
+  document.body.classList.toggle("icons-tint", mode === "tint");
 }
 
 // Появление страницы ждёт готовности фона. Пока класс assets-ready не стоит,
@@ -400,16 +417,8 @@ function renderWidgetLayout() {
   });
   for (const { item, top } of finalPositions) item.style.top = `${top}px`;
   $("#leftStack").dataset.layoutMode = mode;
-  document.body.classList.toggle("season-halloween", isHalloweenActive());
   $("#layoutEditBar")?.setAttribute("aria-hidden", String(!document.body.classList.contains("layout-editing")));
   $("#toggleLayoutEdit")?.classList.toggle("is-active", document.body.classList.contains("layout-editing"));
-}
-
-function isHalloweenActive() {
-  if (settings.seasonalMode === "halloween") return true;
-  if (settings.seasonalMode !== "auto") return false;
-  const now = new Date();
-  return (now.getMonth() === 9 && now.getDate() >= 20) || (now.getMonth() === 10 && now.getDate() <= 2);
 }
 
 function setLayoutMode(mode) {
@@ -480,9 +489,24 @@ function setupWidgetEditor() {
   });
 }
 
+// Что последний раз реально записано в стиль обоев — чтобы renderAppearance
+// на каждый тик слайдера не перезаписывала backgroundImage всего экрана.
+let appliedWallpaperImage = "";
+let appliedWallpaperPosition = "";
+
+function applyWallpaperImage(wallpaper, value) {
+  if (appliedWallpaperImage === value) return;
+  appliedWallpaperImage = value;
+  wallpaper.style.backgroundImage = value;
+}
+
 function updateWallpaperImage() {
   const wallpaper = $(".wallpaper");
-  wallpaper.style.backgroundPosition = settings.position || "center";
+  const position = settings.position || "center";
+  if (appliedWallpaperPosition !== position) {
+    appliedWallpaperPosition = position;
+    wallpaper.style.backgroundPosition = position;
+  }
   const source = settings.customWallpaper;
   if (!source) {
     wallpaperLoadGeneration++;
@@ -491,11 +515,11 @@ function updateWallpaperImage() {
     if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
     wallpaperObjectUrl = "";
     wallpaperObjectSource = "";
-  wallpaper.style.backgroundImage = "url(\"Image.png\")";
+  applyWallpaperImage(wallpaper, "url(\"Image.webp\")");
     return;
   }
   if (wallpaperObjectSource === source) {
-    wallpaper.style.backgroundImage = `url("${wallpaperObjectUrl}")`;
+    applyWallpaperImage(wallpaper, `url("${wallpaperObjectUrl}")`);
     return;
   }
   if (wallpaperLoadingSource === source && wallpaperLoadingPromise) return;
@@ -512,7 +536,7 @@ function updateWallpaperImage() {
     if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
     wallpaperObjectUrl = objectUrl;
     wallpaperObjectSource = source;
-    wallpaper.style.backgroundImage = `url("${objectUrl}")`;
+    applyWallpaperImage(wallpaper, `url("${objectUrl}")`);
   })();
   wallpaperLoadingPromise = loadPromise.catch((error) => showToast(error.message || "Не удалось открыть обои")).finally(() => {
     if (generation === wallpaperLoadGeneration) { wallpaperLoadingSource = ""; wallpaperLoadingPromise = null; }
@@ -521,16 +545,6 @@ function updateWallpaperImage() {
 
 function updateTheme() {
   const now = new Date();
-  const halloween = isHalloweenActive();
-  document.body.classList.toggle("season-halloween", halloween);
-  if (halloween) {
-    // Сезонный акцент ставим последним: инлайн-переменная на :root иначе
-    // перекрывает правило body.season-halloween из таблицы стилей.
-    document.documentElement.dataset.theme = "halloween";
-    document.documentElement.style.setProperty("--accent", "#f0c09a");
-    document.documentElement.style.setProperty("--glass-edge", "rgba(240, 192, 154, .40)");
-    return;
-  }
   let theme = Object.hasOwn(ACCENT_PALETTES, settings.accent) ? settings.accent : "snow";
   if (settings.themeMode === "time") {
     const hour = now.getHours();
@@ -694,36 +708,54 @@ function renderBookmarks() {
     name.className = "bookmark-name";
     name.textContent = bookmark.name || "Сайт";
     button.append(icon, name);
-    button.addEventListener("dragstart", (event) => {
-      draggedBookmarkIndex = index;
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", String(index));
-      button.classList.add("is-dragging");
-    });
-    button.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      if (draggedBookmarkIndex !== index) button.classList.add("is-drop-target");
-    });
-    button.addEventListener("dragleave", () => button.classList.remove("is-drop-target"));
-    button.addEventListener("drop", async (event) => {
-      event.preventDefault();
-      const from = Number(event.dataTransfer.getData("text/plain"));
-      const to = index;
-      if (Number.isInteger(from) && from !== to && settings.bookmarks[from]) {
-        const [moved] = settings.bookmarks.splice(from, 1);
-        settings.bookmarks.splice(to, 0, moved);
-        await saveSettings();
-        renderBookmarks();
-      }
-    });
-    button.addEventListener("dragend", () => {
-      draggedBookmarkIndex = null;
-      $$(".bookmark-item").forEach((item) => item.classList.remove("is-dragging", "is-drop-target"));
-    });
     grid.append(button);
   });
   // Блок подстраивается под количество закладок — пересчитываем размер после отрисовки.
   scheduleWidgetLayout();
+}
+
+// Drag-and-drop перестановки слушаются один раз на гриде: renderBookmarks()
+// перестраивает карточки, и вешать 6 обработчиков на каждую из 24 — лишняя
+// работа на каждую перерисовку.
+function setupBookmarkDragAndDrop() {
+  const grid = $("#bookmarkGrid");
+  const itemFrom = (target) => target instanceof Element ? target.closest(".bookmark-item") : null;
+  grid.addEventListener("dragstart", (event) => {
+    const item = itemFrom(event.target);
+    if (!item) return;
+    draggedBookmarkIndex = Number(item.dataset.bookmarkIndex);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(draggedBookmarkIndex));
+    item.classList.add("is-dragging");
+  });
+  grid.addEventListener("dragover", (event) => {
+    const item = itemFrom(event.target);
+    if (!item) return;
+    event.preventDefault();
+    if (draggedBookmarkIndex !== Number(item.dataset.bookmarkIndex)) item.classList.add("is-drop-target");
+  });
+  grid.addEventListener("dragleave", (event) => {
+    const item = itemFrom(event.target);
+    // relatedTarget пуст при уходе за окно — в этом случае тоже гасим подсветку.
+    if (item && !item.contains(event.relatedTarget)) item.classList.remove("is-drop-target");
+  });
+  grid.addEventListener("drop", async (event) => {
+    const item = itemFrom(event.target);
+    if (!item) return;
+    event.preventDefault();
+    const from = Number(event.dataTransfer.getData("text/plain"));
+    const to = Number(item.dataset.bookmarkIndex);
+    if (Number.isInteger(from) && from !== to && settings.bookmarks[from]) {
+      const [moved] = settings.bookmarks.splice(from, 1);
+      settings.bookmarks.splice(to, 0, moved);
+      await saveSettings();
+      renderBookmarks();
+    }
+  });
+  grid.addEventListener("dragend", () => {
+    draggedBookmarkIndex = null;
+    $$(".bookmark-item").forEach((item) => item.classList.remove("is-dragging", "is-drop-target"));
+  });
 }
 
 let clockDateFormatter;
@@ -1072,25 +1104,45 @@ function closeDrawer() {
   resetIdleTimer(true);
 }
 
+// Разделы настроек: иконки — маленькие stroke-SVG, чтобы навигация смотрелась
+// аккуратно в боковой панели. Порядок = порядок в панели.
+const DRAWER_PAGES = [
+  {
+    kind: "general",
+    label: "Общие",
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"></path><path d="m19.2 13.3 1.1.9-1.1 1.9-1.3-.5a7.4 7.4 0 0 1-1.5.9l-.2 1.4h-2.2l-.4-1.3a7.1 7.1 0 0 1-1.8 0l-.8 1.1-1.9-1.1.4-1.3a7.4 7.4 0 0 1-.9-1.5l-1.4-.2v-2.2l1.3-.4a7.1 7.1 0 0 1 0-1.8l-1.1-.8 1.1-1.9 1.3.4a7.4 7.4 0 0 1 1.5-.9l.2-1.4h2.2l.4 1.3a7.1 7.1 0 0 1 1.8 0l.8-1.1 1.9 1.1-.4 1.3a7.4 7.4 0 0 1 .9 1.5l1.4.2v2.2l-1.3.4c.1.6.1 1.2 0 1.8Z"></path></svg>'
+  },
+  { kind: "weather", label: "Погода", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.5h9.3a3.7 3.7 0 0 0 .6-7.35A5.4 5.4 0 0 0 6.3 11.6 3.4 3.4 0 0 0 7 17.5Z"></path></svg>' },
+  { kind: "clock", label: "Часы и дата", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"></circle><path d="M12 7.4V12l3.2 1.9"></path></svg>' },
+  { kind: "bookmarks", label: "Избранное", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4.6 2.2 4.7 5.1.65-3.75 3.55.95 5.05L12 16.1l-4.5 2.45.95-5.05L4.7 9.95l5.1-.65L12 4.6Z"></path></svg>' }
+];
+
 function renderDrawer() {
+  const nav = $("#drawerNav");
+  nav.replaceChildren();
+  for (const page of DRAWER_PAGES) {
+    const button = el("button", "drawer-nav-item");
+    button.type = "button";
+    const active = drawerKind === page.kind;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    const icon = el("span", "drawer-nav-icon");
+    icon.innerHTML = page.icon;
+    button.append(icon, el("span", "", page.label));
+    button.addEventListener("click", () => {
+      if (drawerKind === page.kind) return;
+      drawerKind = page.kind;
+      renderDrawer();
+    });
+    nav.append(button);
+  }
   const content = $("#drawerContent");
   content.replaceChildren();
+  content.scrollTop = 0;
   if (drawerKind === "weather") renderWeatherSettings(content);
   else if (drawerKind === "clock") renderClockSettings(content);
   else if (drawerKind === "bookmarks") renderBookmarkSettings(content);
   else renderGeneralSettings(content);
-  const generalButton = el("button", "drawer-button", drawerKind === "general" ? "Готово" : "⚙  Все настройки");
-  generalButton.type = "button";
-  generalButton.addEventListener("click", () => drawerKind === "general" ? closeDrawer() : openDrawer("general"));
-  const footer = el("div", "button-row");
-  footer.append(generalButton);
-  if (drawerKind !== "general") {
-    const done = el("button", "drawer-button primary", "Готово");
-    done.type = "button";
-    done.addEventListener("click", closeDrawer);
-    footer.append(done);
-  }
-  content.append(footer);
 }
 
 function renderGeneralSettings(content) {
@@ -1100,7 +1152,7 @@ function renderGeneralSettings(content) {
   const brightness = document.createElement("input");
   brightness.type = "range"; brightness.min = "35"; brightness.max = "120"; brightness.value = String(settings.brightness);
   const brightnessValue = el("span", "setting-value", `${settings.brightness}%`);
-  brightness.addEventListener("input", () => { settings.brightness = Number(brightness.value); brightnessValue.textContent = `${brightness.value}%`; renderAppearance(); scheduleSaveSettings(); });
+  brightness.addEventListener("input", () => { settings.brightness = Number(brightness.value); brightnessValue.textContent = `${brightness.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
   const brightnessControl = el("span", "setting-control"); brightnessControl.append(brightness, brightnessValue);
   const brightnessRow = makeRow("Яркость", "Настрой читаемость фонового изображения.", document.createElement("span"));
   brightnessRow.lastElementChild.replaceWith(brightnessControl);
@@ -1109,7 +1161,7 @@ function renderGeneralSettings(content) {
   const shade = document.createElement("input");
   shade.type = "range"; shade.min = "0"; shade.max = "60"; shade.value = String(settings.shade);
   const shadeValue = el("span", "setting-value", `${settings.shade}%`);
-  shade.addEventListener("input", () => { settings.shade = Number(shade.value); shadeValue.textContent = `${shade.value}%`; renderAppearance(); scheduleSaveSettings(); });
+  shade.addEventListener("input", () => { settings.shade = Number(shade.value); shadeValue.textContent = `${shade.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
   const shadeControl = el("span", "setting-control"); shadeControl.append(shade, shadeValue);
   const shadeRow = makeRow("Затемнение", "Мягкая вуаль для контраста виджетов.", document.createElement("span"));
   shadeRow.lastElementChild.replaceWith(shadeControl);
@@ -1118,7 +1170,7 @@ function renderGeneralSettings(content) {
   const scale = document.createElement("input");
   scale.type = "range"; scale.min = "85"; scale.max = "130"; scale.value = String(settings.scale);
   const scaleValue = el("span", "setting-value", `${settings.scale}%`);
-  scale.addEventListener("input", () => { settings.scale = Number(scale.value); scaleValue.textContent = `${scale.value}%`; renderAppearance(); scheduleSaveSettings(); });
+  scale.addEventListener("input", () => { settings.scale = Number(scale.value); scaleValue.textContent = `${scale.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
   const scaleControl = el("span", "setting-control"); scaleControl.append(scale, scaleValue);
   const scaleRow = makeRow("Масштаб", "Подстрой кадрирование обоев.", document.createElement("span"));
   scaleRow.lastElementChild.replaceWith(scaleControl);
@@ -1127,10 +1179,6 @@ function renderGeneralSettings(content) {
   const position = makeSelect([["center", "По центру"], ["center 35%", "Выше"], ["center 65%", "Ниже"], ["left center", "Слева"], ["right center", "Справа"]], settings.position);
   position.addEventListener("change", () => { settings.position = position.value; renderAppearance(); saveSettings(); });
   visual.append(makeRow("Положение", "Точка фокуса фонового изображения.", position));
-
-  const halloweenMode = makeSelect([["off", "Без спецэффектов"], ["halloween", "Хэллоуин · тыквы и янтарный свет"], ["auto", "Автоматически в сезон"]], settings.seasonalMode || "off");
-  halloweenMode.addEventListener("change", async () => { settings.seasonalMode = halloweenMode.value; renderWidgetLayout(); await saveSettings(); });
-  visual.append(makeRow("Сезонный прикол", "Хэллоуин автоматически включается с 20 октября по 2 ноября.", halloweenMode));
 
   const accent = makeSelect([["snow", "Снежный"], ["ice", "Ледяной"], ["lavender", "Лавандовый"], ["rose", "Розовый рассвет"], ["moss", "Мох" ]], settings.accent);
   accent.disabled = settings.themeMode !== "manual";
@@ -1397,7 +1445,6 @@ function normalizeImportedSettings(source) {
       const h = clamp(saved.h, 0, 13 - y, fallback.h);
       return [key, { x, y, w, h }];
     })),
-    seasonalMode: ["off", "halloween", "auto"].includes(input.seasonalMode) ? input.seasonalMode : DEFAULTS.seasonalMode,
     brightness: clamp(input.brightness, 35, 120, DEFAULTS.brightness),
     shade: clamp(input.shade, 0, 60, DEFAULTS.shade),
     scale: clamp(input.scale, 85, 130, DEFAULTS.scale),
@@ -1411,6 +1458,7 @@ function normalizeImportedSettings(source) {
     videoEnabled: Boolean(input.videoEnabled && video),
     parallaxEnabled: Boolean(input.parallaxEnabled),
     faviconEnabled: input.faviconEnabled !== false,
+    iconStyle: ["color", "mono", "tint"].includes(input.iconStyle) ? input.iconStyle : DEFAULTS.iconStyle,
     widgetSizes: {
       weather: clamp(sizes.weather, 75, 140, 100),
       bookmarks: clamp(sizes.bookmarks, 75, 140, 100),
@@ -1498,6 +1546,13 @@ function renderBookmarkSettings(content) {
     await saveSettings();
   });
   section.append(makeRow("Иконки сайтов", "Фавикон с сайта вместо буквы. Свой символ или картинка всегда важнее.", favicons.label));
+  const iconStyle = makeSelect([["color", "Обычные цветные"], ["mono", "Монохромные"], ["tint", "Тонированные · один оттенок"]], settings.iconStyle || "color");
+  iconStyle.addEventListener("change", async () => {
+    settings.iconStyle = iconStyle.value;
+    applyIconStyle();
+    await saveSettings();
+  });
+  section.append(makeRow("Стиль значков", "Монохром приглушает цвета, «тонированные» перекрашивает все значки в оттенок темы — как иконки в iOS.", iconStyle));
   const editLayout = el("button", "drawer-button", "⌗  Растянуть и расставить по сетке");
   editLayout.type = "button";
   editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
@@ -1596,7 +1651,10 @@ function renderWidgetSizeSetting(content, widget, label) {
   range.addEventListener("input", () => {
     settings.widgetSizes[widget] = Number(range.value);
     value.textContent = `${range.value}%`;
-    renderAppearance();
+    // На тике слайдера достаточно одной переменной и перераскладки —
+    // полная renderAppearance() тут перезапускала бы обои и видео.
+    document.documentElement.style.setProperty(`--widget-${widget}-scale`, String(Number(range.value) / 100));
+    scheduleWidgetLayout();
   });
   range.addEventListener("change", saveSettings);
   const row = makeRow(label, "Изменение сразу видно на странице.", range);
@@ -2112,6 +2170,7 @@ async function init() {
   await loadSettings();
   renderAppearance();
   revealWhenWallpaperReady();
+  setupBookmarkDragAndDrop();
   renderBookmarks();
   updateEngineButton();
   startCaptionRotation();
@@ -2128,7 +2187,6 @@ async function init() {
     updateTheme();
     const shouldSnow = isSnowEffectActive();
     if ($("#snowCanvas").classList.contains("is-active") !== shouldSnow) setSnowEffect(shouldSnow);
-    document.body.classList.toggle("season-halloween", isHalloweenActive());
   }, 60 * 1000);
   setInterval(updateWeather, 10 * 60 * 1000);
 }
