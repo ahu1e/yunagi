@@ -192,7 +192,7 @@ async function loadSettings() {
     console.warn("yunagi: using default settings", error);
     settings = { ...DEFAULTS, widgetLayout: { ...DEFAULTS.widgetLayout } };
   }
-  migrateWidgetLayout(settings.widgetLayout);
+  if (migrateWidgetLayout(settings.widgetLayout)) saveSettings();
 }
 
 // Прежний дефолт держал правый столбец в колонке 22 — колонка 24 оставалась пустой,
@@ -200,13 +200,14 @@ async function loadSettings() {
 function migrateWidgetLayout(layout) {
   const dateCell = layout?.date;
   const clockCell = layout?.clock;
-  if (!dateCell || !clockCell) return;
+  if (!dateCell || !clockCell) return false;
   const untouched =
     dateCell.x === 22 && dateCell.w === 2 && dateCell.y === 1 &&
     clockCell.x === 22 && clockCell.w === 2 && clockCell.y === 3;
-  if (!untouched) return;
+  if (!untouched) return false;
   dateCell.x = 23;
   clockCell.x = 23;
+  return true;
 }
 
 async function saveSettings(options = {}) {
@@ -2068,7 +2069,6 @@ function setupEvents() {
   });
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $("#drawerScrim").addEventListener("click", closeDrawer);
-  $$('[data-open-settings]').forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); openDrawer(button.dataset.openSettings); }));
   $$(".widget[data-widget]").forEach((widget) => {
     widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); if (widget.dataset.widget === "weather") toggleWeatherPanel(false); openDrawer(widget.dataset.widget); });
     widget.addEventListener("keydown", (event) => { if (event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });

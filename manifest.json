@@ -10,7 +10,7 @@
     "https://raw.githubusercontent.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.google.com/s2/favicons; media-src 'self' data: blob:"
   },
   "chrome_url_overrides": {
     "newtab": "newtab.html"
