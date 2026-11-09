@@ -22,6 +22,7 @@ const DEFAULTS = {
   scale: 100,
   position: "center",
   accent: "snow",
+  surfaceStyle: "metal",
   customWallpaper: "",
   customVideo: "",
   hasCustomVideo: false,
@@ -34,7 +35,7 @@ const DEFAULTS = {
   layoutMode: "free",
   widgetLayout: {
     weather: { x: 1, y: 1, w: 2, h: 0 },
-    bookmarks: { x: 1, y: 3, w: 3, h: 0 },
+    bookmarks: { x: 1, y: 3, w: 1, h: 0 },
     date: { x: 22, y: 1, w: 2, h: 0 },
     clock: { x: 22, y: 3, w: 2, h: 0 },
     search: { x: 8, y: 10, w: 10, h: 0 }
@@ -160,7 +161,6 @@ const ACCENT_PALETTES = {
 let settings = { ...DEFAULTS };
 let drawerKind = "general";
 let toastTimer;
-let pendingNavigation;
 let weatherRequest = 0;
 let snowContext;
 let snowflakes = [];
@@ -211,6 +211,7 @@ async function loadSettings() {
     console.warn("yunagi: using default settings", error);
     settings = { ...DEFAULTS, widgetLayout: { ...DEFAULTS.widgetLayout } };
   }
+  if (!["color", "mono"].includes(settings.iconStyle)) settings.iconStyle = "color";
   savedSettings = structuredClone(settings);
   if (migrateWidgetLayout(settings.widgetLayout)) saveSettings();
 }
@@ -330,6 +331,7 @@ function flushPendingSave() {
 // Вызывается на каждый тик слайдера (input): перетаскивание яркости не должно
 // дергать обои, видео и тему — для этого есть полная renderAppearance().
 function applyAppearanceVars() {
+  document.documentElement.dataset.surface = ["metal", "frosted", "clear"].includes(settings.surfaceStyle) ? settings.surfaceStyle : "metal";
   const brightness = Number(settings.brightness) || DEFAULTS.brightness;
   const shade = Number(settings.shade) || 0;
   const scale = Number(settings.scale) || 100;
@@ -359,12 +361,10 @@ function renderAppearance() {
 }
 
 // Стиль значков закладок: color — обычные цветные, mono — обесцвеченные,
-// tint — один оттенок на все значки (как tinted-иконки в iOS).
 // Режимы рисуются CSS по классам на body, разметка значков не меняется.
 function applyIconStyle() {
-  const mode = ["mono", "tint"].includes(settings.iconStyle) ? settings.iconStyle : "color";
+  const mode = settings.iconStyle === "mono" ? settings.iconStyle : "color";
   document.body.classList.toggle("icons-mono", mode === "mono");
-  document.body.classList.toggle("icons-tint", mode === "tint");
 }
 
 // Появление страницы ждёт готовности фона. Пока класс assets-ready не стоит,
@@ -398,7 +398,7 @@ function revealWhenWallpaperReady() {
 
 const WIDGET_LAYOUT_DEFAULTS = {
   weather: { x: 1, y: 1, w: 2, h: 0 },
-  bookmarks: { x: 1, y: 3, w: 3, h: 0 },
+  bookmarks: { x: 1, y: 3, w: 1, h: 0 },
   date: { x: 23, y: 1, w: 2, h: 0 },
   clock: { x: 23, y: 3, w: 2, h: 0 },
   search: { x: 8, y: 10, w: 10, h: 0 }
@@ -441,7 +441,9 @@ function renderWidgetLayout() {
   // и есть ширина карточки, а колонки просто влезают в неё. Хочешь список на 6 в
   // высоту — тяни w до одной ячейки; хочешь широкий блок — тяни вправо. Высота
   // всегда по содержимому: добавил сайт — карточка подросла, удалил — сократилась.
-  const bookmarkCellWidth = Math.min(bookmarkWidthLimit, Math.max(widthFor(1), (bookmarkWidth / 24) * canvasWidth));
+  const bookmarkCellWidth = bookmarkWidth === 1
+    ? widthFor(1)
+    : Math.min(bookmarkWidthLimit, Math.max(widthFor(1), (bookmarkWidth / 24) * canvasWidth));
   const bookmarkColumns = mode === "stack"
     ? 3
     : Math.max(1, Math.min(bookmarkMaxCols, columnsFor(bookmarkCellWidth / bookmarkScale), Math.max(1, bookmarkCount)));
@@ -515,17 +517,38 @@ function setLayoutMode(mode) {
   saveSettings();
 }
 
+let layoutEditorSnapshot = null;
+const LAYOUT_LABELS = { weather: "Погода", bookmarks: "Избранное", date: "Дата", clock: "Часы", search: "Поиск" };
+
 function toggleLayoutEditor(enabled = !document.body.classList.contains("layout-editing")) {
+  if (enabled && !document.body.classList.contains("layout-editing")) {
+    layoutEditorSnapshot = { layoutMode: settings.layoutMode, widgetLayout: structuredClone(settings.widgetLayout) };
+    toggleWeatherPanel(false);
+    hideIdleClock();
+    clearTimeout(idleTimer);
+  }
   document.body.classList.toggle("layout-editing", enabled);
+  $("#layoutEditBar").inert = !enabled;
   if (enabled) settings.layoutMode = "custom";
+  else {
+    $$(".is-layout-selected").forEach((item) => item.classList.remove("is-layout-selected"));
+    $("#editorSelection").textContent = "Выбери блок и перетащи на новое место";
+    resetIdleTimer(true);
+  }
   renderWidgetLayout();
   saveSettings();
 }
 
 function setupWidgetEditor() {
   $$('[data-layout-item]').forEach((item) => {
-    const drag = el("span", "layout-drag-handle", "⠿");
-    const resize = el("span", "layout-resize-handle", "↘");
+    const label = LAYOUT_LABELS[item.dataset.layoutItem];
+    const drag = el("span", "layout-drag-handle");
+    drag.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01"/></svg>';
+    drag.append(el("span", "", label));
+    const resize = el("span", "layout-resize-handle");
+    resize.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 11v6h6M11 7h6v6"/></svg>';
+    drag.title = "Переместить: " + label;
+    resize.title = "Изменить размер: " + label;
     drag.setAttribute("aria-label", "Перетащить блок");
     resize.setAttribute("aria-label", "Изменить размер блока");
     item.append(drag, resize);
@@ -544,7 +567,11 @@ function setupWidgetEditor() {
       const contentHeight = canvas.clientHeight - parseFloat(canvasStyle.paddingTop) - parseFloat(canvasStyle.paddingBottom);
       const col = contentWidth / 24;
       const row = contentHeight / 12;
-      item.classList.add("is-layout-active");
+      $$(".is-layout-selected").forEach((other) => other.classList.remove("is-layout-selected"));
+      item.classList.add("is-layout-active", "is-layout-selected");
+      document.body.classList.add("layout-dragging");
+      const describe = () => { const cell = settings.widgetLayout[key]; $("#editorSelection").textContent = LAYOUT_LABELS[key] + " · " + cell.w + " × " + (cell.h || "авто") + " · колонка " + cell.x + ", ряд " + cell.y; };
+      describe();
       const move = (pointer) => {
         const dx = Math.round((pointer.clientX - pointerX) / col);
         const dy = Math.round((pointer.clientY - pointerY) / row);
@@ -557,15 +584,19 @@ function setupWidgetEditor() {
           layout.x = Math.max(1, Math.min(25 - initial.w, initial.x + dx));
           layout.y = Math.max(1, Math.min(13 - (initial.h || 1), initial.y + dy));
         }
-        if (`${layout.x}:${layout.y}:${layout.w}:${layout.h}` !== before) scheduleWidgetLayout();
+        if (`${layout.x}:${layout.y}:${layout.w}:${layout.h}` !== before) { scheduleWidgetLayout(); describe(); }
       };
       const finish = () => {
         item.classList.remove("is-layout-active");
+        document.body.classList.remove("layout-dragging");
         document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", finish);
+        document.removeEventListener("pointercancel", finish);
         saveSettings();
       };
       document.addEventListener("pointermove", move);
       document.addEventListener("pointerup", finish, { once: true });
+      document.addEventListener("pointercancel", finish, { once: true });
     };
     drag.addEventListener("pointerdown", (event) => start(event, false));
     resize.addEventListener("pointerdown", (event) => start(event, true));
@@ -916,12 +947,15 @@ function paintWeather(data, stale = false) {
   $("#weatherIcon").innerHTML = weatherSvg(icon);
   $("#weatherTemp").textContent = displayTemperature(temp);
   $("#weatherCity").textContent = data.place.name;
+  $("#weatherDescription").textContent = description;
   const age = new Date(data.at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const status = stale ? "Последний прогноз: " + age : description;
   $(".weather-card").title = status;
   $(".weather-card").setAttribute("aria-label", description + ", " + displayTemperature(temp) + ", " + data.place.name + (stale ? ". " + status : ""));
   updateIdleWeather(icon, displayTemperature(temp) + " · " + data.place.name, status);
   storeWeatherDetails({ place: data.place.name, tempCelsius: temp, current, timeseries: data.timeseries });
+  Object.assign(weatherDetails, { icon, description, status });
+  if (weatherPanelOpen) renderWeatherPanel();
 }
 
 async function updateWeather(force = false) {
@@ -937,6 +971,7 @@ async function updateWeather(force = false) {
   }
   if (!cached) {
     weatherDetails = null;
+    $("#weatherDescription").textContent = "Обновляем прогноз";
     $("#weatherCity").textContent = city;
     $("#weatherTemp").textContent = "—°";
     $("#weatherIcon").innerHTML = weatherSvg("☁");
@@ -962,6 +997,7 @@ async function updateWeather(force = false) {
     if (request !== weatherRequest) return;
     if (cached) paintWeather(cache, true);
     else {
+      $("#weatherDescription").textContent = "Нет подключения";
       $(".weather-card").title = "Погода недоступна. Проверь город и подключение.";
       updateIdleWeather("☁", "Погода недоступна · " + city, "Погода недоступна");
     }
@@ -1013,66 +1049,74 @@ function storeWeatherDetails({ place, tempCelsius, current, timeseries }) {
     humidity: typeof details.relative_humidity === "number" ? `${Math.round(details.relative_humidity)}%` : "—",
     hours
   };
-  if (weatherPanelOpen) renderWeatherPanel();
 }
 
 function renderWeatherPanel() {
   const panel = $("#weatherPanel");
+  const focusedId = panel.contains(document.activeElement) ? document.activeElement.id : "";
   panel.replaceChildren();
-  if (!weatherDetails) {
-    panel.append(el("p", "weather-panel-empty", "Прогноз пока недоступен"));
-    return;
+  const head = el("div", "weather-dialog-header");
+  const title = el("h2", "weather-dialog-title", "Погода"); title.id = "weatherDialogTitle";
+  const actions = el("div", "weather-dialog-actions");
+  for (const [id, label, path, action] of [
+    ["refreshWeather", "Обновить прогноз", '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>', () => updateWeather(true)],
+    ["weatherSettings", "Настройки погоды", '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>', () => { toggleWeatherPanel(false); openDrawer("weather"); }],
+    ["closeWeather", "Закрыть прогноз", '<path d="m6 6 12 12M18 6 6 18"/>', () => toggleWeatherPanel(false)]
+  ]) {
+    const button = el("button", "weather-dialog-button");
+    button.id = id; button.type = "button"; button.title = label; button.setAttribute("aria-label", label);
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + path + '</svg>';
+    button.addEventListener("click", action); actions.append(button);
   }
-  const head = el("div", "weather-panel-head");
-  head.append(el("span", "weather-panel-place", weatherDetails.place), el("span", "weather-panel-now", `сейчас ${weatherDetails.temp}`));
-  panel.append(head);
-  const stats = el("div", "weather-panel-stats");
-  [["Ощущается", weatherDetails.feelsLike], ["Ветер", weatherDetails.wind], ["Влажность", weatherDetails.humidity]].forEach(([label, value]) => {
-    const stat = el("span", "weather-panel-stat");
-    stat.append(el("span", "weather-panel-stat-label", label), el("span", "weather-panel-stat-value", value));
-    stats.append(stat);
-  });
-  panel.append(stats);
-  if (weatherDetails.hours.length) {
-    const hours = el("div", "weather-panel-hours");
-    weatherDetails.hours.forEach((hour) => {
-      const row = el("span", "weather-panel-hour");
-      row.append(el("span", "weather-panel-hour-time", hour.label), el("span", "weather-panel-hour-icon", hour.icon), el("span", "weather-panel-hour-temp", hour.temp));
-      row.querySelector(".weather-panel-hour-icon").innerHTML = weatherSvg(hour.icon);
-      row.title = hour.description;
-      hours.append(row);
-    });
-    panel.append(hours);
+  head.append(title, actions); panel.append(head);
+  if (!weatherDetails) panel.append(el("p", "weather-panel-empty", "Прогноз пока недоступен. Попробуй обновить или проверь город в настройках."));
+  else {
+    const hero = el("div", "weather-dialog-hero");
+    const copy = el("div", "weather-dialog-copy");
+    copy.append(el("span", "weather-panel-place", weatherDetails.place), el("span", "weather-dialog-temp", weatherDetails.temp), el("span", "weather-dialog-description", weatherDetails.description || ""));
+    const icon = el("span", "weather-dialog-icon"); icon.innerHTML = weatherSvg(weatherDetails.icon);
+    hero.append(copy, icon); panel.append(hero);
+    if (weatherDetails.hours.length) {
+      panel.append(el("h3", "weather-section-title", "В ближайшие часы"));
+      const hours = el("div", "weather-panel-hours");
+      weatherDetails.hours.forEach((hour) => {
+        const row = el("div", "weather-panel-hour");
+        const icon = el("span", "weather-panel-hour-icon"); icon.innerHTML = weatherSvg(hour.icon);
+        row.append(el("span", "weather-panel-hour-time", hour.label), icon, el("span", "weather-panel-hour-temp", hour.temp));
+        row.title = hour.description; hours.append(row);
+      });
+      panel.append(hours);
+    }
+    const stats = el("div", "weather-panel-stats");
+    for (const [label, value] of [["Ощущается", weatherDetails.feelsLike], ["Ветер", weatherDetails.wind], ["Влажность", weatherDetails.humidity]]) {
+      const stat = el("div", "weather-panel-stat");
+      stat.append(el("span", "weather-panel-stat-label", label), el("span", "weather-panel-stat-value", value)); stats.append(stat);
+    }
+    panel.append(stats, el("p", "weather-dialog-status", weatherDetails.status || ""));
   }
+  if (focusedId) panel.querySelector('#' + focusedId)?.focus();
 }
 
-// Панель раскрывается от карточки и не должна уезжать за край экрана.
-function positionWeatherPanel() {
-  const panel = $("#weatherPanel");
-  const card = $(".weather-card");
-  const rect = card.getBoundingClientRect();
-  const panelWidth = panel.offsetWidth || 260;
-  const panelHeight = panel.offsetHeight || 160;
-  let left = rect.left;
-  let top = rect.bottom + 10;
-  if (left + panelWidth > window.innerWidth - 12) left = window.innerWidth - panelWidth - 12;
-  if (top + panelHeight > window.innerHeight - 12) top = Math.max(12, rect.top - panelHeight - 10);
-  panel.style.left = `${Math.max(12, left)}px`;
-  panel.style.top = `${top}px`;
-}
+// The native modal stays centered and manages keyboard focus and its backdrop.
+function positionWeatherPanel() {}
 
 function toggleWeatherPanel(force) {
   const panel = $("#weatherPanel");
   const next = typeof force === "boolean" ? force : !weatherPanelOpen;
   if (next === weatherPanelOpen) return;
   weatherPanelOpen = next;
-  if (weatherPanelOpen) {
+  if (next) {
+    hideIdleClock(); clearTimeout(idleTimer);
     renderWeatherPanel();
     panel.setAttribute("aria-hidden", "false");
-    requestAnimationFrame(() => { panel.classList.add("is-open"); positionWeatherPanel(); });
+    panel.showModal();
+    panel.classList.add("is-open");
+    $("#closeWeather").focus();
   } else {
     panel.classList.remove("is-open");
     panel.setAttribute("aria-hidden", "true");
+    panel.close();
+    resetIdleTimer(true);
   }
 }
 
@@ -1101,7 +1145,7 @@ function resetIdleTimer(force = false) {
   if (!force && now - lastIdleResetAt < 300) return;
   clearTimeout(idleTimer);
   idleTimer = 0;
-  if (!settings.idleClockDelay || document.hidden || document.body.classList.contains("focus-mode") || document.body.classList.contains("drawer-open")) return;
+  if (weatherPanelOpen || document.body.classList.contains("layout-editing") || !settings.idleClockDelay || document.hidden || document.body.classList.contains("focus-mode") || document.body.classList.contains("drawer-open")) return;
   lastIdleResetAt = now;
   idleTimer = setTimeout(() => {
     if (document.hidden || document.body.classList.contains("focus-mode") || document.body.classList.contains("drawer-open")) return;
@@ -1328,6 +1372,21 @@ function renderGeneralSettings(content) {
   content.append(widgets);
 
   const visual = makeSection("ФОН И АТМОСФЕРА");
+  const surfaces = el("div", "surface-options");
+  surfaces.setAttribute("role", "group"); surfaces.setAttribute("aria-label", "Оформление виджетов");
+  for (const [value, label, description] of [["metal", "Жидкий металл", "Тёмная поверхность и металлические блики"], ["frosted", "Матовое стекло", "Мягкое размытие и рассеянный свет"], ["clear", "Прозрачное стекло", "Лёгкая подложка, больше обоев"]]) {
+    const button = el("button", "surface-option"); button.type = "button"; button.dataset.surfaceChoice = value;
+    const sample = el("span", "surface-sample"); sample.setAttribute("aria-hidden", "true");
+    sample.append(el("span", "surface-sample-clock", "09:41"));
+    button.append(sample, el("strong", "", label), el("span", "surface-option-description", description));
+    button.setAttribute("aria-pressed", String((settings.surfaceStyle || "metal") === value));
+    button.addEventListener("click", () => {
+      settings.surfaceStyle = value; applyAppearanceVars(); saveSettings();
+      for (const choice of surfaces.children) choice.setAttribute("aria-pressed", String(choice === button));
+    });
+    surfaces.append(button);
+  }
+  visual.append(surfaces);
   const brightness = document.createElement("input");
   brightness.type = "range"; brightness.min = "35"; brightness.max = "120"; brightness.value = String(settings.brightness);
   const brightnessValue = el("span", "setting-value", `${settings.brightness}%`);
@@ -1679,6 +1738,7 @@ function normalizeImportedSettings(source) {
     scale: clamp(input.scale, 85, 130, DEFAULTS.scale),
     position: positionOptions.includes(input.position) || /^50% (100|[1-9]?\d)%$/.test(input.position) ? input.position : DEFAULTS.position,
     accent: accents.includes(input.accent) ? input.accent : DEFAULTS.accent,
+    surfaceStyle: ["metal", "frosted", "clear"].includes(input.surfaceStyle) ? input.surfaceStyle : DEFAULTS.surfaceStyle,
     themeMode: themes.includes(input.themeMode) ? input.themeMode : "manual",
     idleClockDelay: [0, 30, 60, 120, 300, 600].includes(Number(input.idleClockDelay)) ? Number(input.idleClockDelay) : DEFAULTS.idleClockDelay,
     customWallpaper: image,
@@ -1688,7 +1748,7 @@ function normalizeImportedSettings(source) {
     parallaxEnabled: Boolean(input.parallaxEnabled),
     hiddenWidgets: Array.isArray(input.hiddenWidgets) ? [...new Set(input.hiddenWidgets.filter((key) => Object.hasOwn(WIDGET_LAYOUT_DEFAULTS, key)))] : [],
     faviconEnabled: input.faviconEnabled !== false,
-    iconStyle: ["color", "mono", "tint"].includes(input.iconStyle) ? input.iconStyle : DEFAULTS.iconStyle,
+    iconStyle: ["color", "mono"].includes(input.iconStyle) ? input.iconStyle : DEFAULTS.iconStyle,
     widgetSizes: {
       weather: clamp(sizes.weather, 75, 140, 100),
       bookmarks: clamp(sizes.bookmarks, 75, 140, 100),
@@ -1768,7 +1828,7 @@ function renderBookmarkSettings(content) {
   const section = makeSection("ИЗБРАННЫЕ САЙТЫ");
   const layoutMode = makeSelect([["free", "Блоки независимо"], ["stack", "Одна вертикальная колонка слева"], ["custom", "Мой макет по сетке"]], settings.layoutMode || "free");
   layoutMode.addEventListener("change", () => setLayoutMode(layoutMode.value));
-  section.append(makeRow("Расположение", "В режиме колонки погода и каждый сайт идут отдельной строкой.", layoutMode));
+  section.append(makeRow("Расположение", "Размещай блоки независимо, колонкой или в конструкторе.", layoutMode));
   const favicons = makeToggle(settings.faviconEnabled !== false, "Показывать иконки сайтов");
   favicons.input.addEventListener("change", async () => {
     settings.faviconEnabled = favicons.input.checked;
@@ -1776,27 +1836,60 @@ function renderBookmarkSettings(content) {
     await saveSettings();
   });
   section.append(makeRow("Иконки сайтов", "Фавикон с сайта вместо буквы. Свой символ или картинка всегда важнее.", favicons.label));
-  const iconStyle = makeSelect([["color", "Обычные цветные"], ["mono", "Монохромные"], ["tint", "Тонированные · один оттенок"]], settings.iconStyle || "color");
+  const iconStyle = makeSelect([["color", "Обычные цветные"], ["mono", "Монохромные"]], settings.iconStyle || "color");
   iconStyle.addEventListener("change", async () => {
     settings.iconStyle = iconStyle.value;
     applyIconStyle();
     await saveSettings();
   });
-  section.append(makeRow("Стиль значков", "Монохром приглушает цвета, «тонированные» перекрашивает все значки в оттенок темы — как иконки в iOS.", iconStyle));
+  section.append(makeRow("Стиль значков", "Цветные значки сайтов или спокойный монохром.", iconStyle));
   const editLayout = el("button", "drawer-button", "⌗  Растянуть и расставить по сетке");
   editLayout.type = "button";
   editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
   section.append(editLayout);
   const list = el("div", "bookmark-edit-list");
+  const listHeading = el("div", "bookmark-list-heading");
+  listHeading.append(el("h2", "", "Твои сайты"), el("span", "", String(settings.bookmarks.length) + " / 24"));
+  section.append(listHeading);
   const bookmarks = Array.isArray(settings.bookmarks) ? settings.bookmarks : [];
   if (!bookmarks.length) list.append(el("p", "empty-bookmarks", "Здесь пока тихо. Добавь первый сайт."));
   bookmarks.forEach((bookmark, index) => {
     const editItem = el("div", "bookmark-edit-item");
+    const rebuildList = (focusIndex = index) => {
+      const scroll = $("#drawerContent").scrollTop;
+      renderDrawer();
+      $("#drawerContent").scrollTop = scroll;
+      const items = Array.from($("#drawerContent").querySelectorAll(".bookmark-edit-item"));
+      items[Math.min(focusIndex, items.length - 1)]?.querySelector("input")?.focus({ preventScroll: true });
+    };
     const row = el("div", "bookmark-edit-row");
+    const preview = el("span", "bookmark-editor-preview");
+    const refreshPreview = () => {
+      const current = settings.bookmarks[index];
+      if (!current) return;
+      preview.replaceChildren();
+      preview.style.setProperty("--bookmark-color", current.color || "#667a82");
+      if (current.icon?.startsWith("data:image/")) {
+        const image = el("img", "bookmark-custom-image"); image.src = current.icon; image.alt = ""; preview.append(image);
+      } else if (current.icon) preview.textContent = current.icon;
+      else {
+        const favicon = settings.faviconEnabled === false ? "" : bookmarkFavicon(current.url);
+        const fallback = (current.name || "?").trim().charAt(0).toUpperCase();
+        if (favicon) {
+          const image = el("img", "bookmark-favicon"); image.src = favicon; image.alt = "";
+          image.addEventListener("error", () => { preview.textContent = fallback; }, { once: true }); preview.append(image);
+        } else preview.textContent = fallback;
+      }
+    };
+    refreshPreview();
     const name = document.createElement("input"); name.type = "text"; name.value = bookmark.name || ""; name.placeholder = "Название"; name.maxLength = 24; name.setAttribute("aria-label", "Название закладки");
     const url = document.createElement("input"); url.type = "url"; url.value = bookmark.url || ""; url.placeholder = "https://…"; url.setAttribute("aria-label", "Адрес закладки");
     const remove = el("button", "remove-bookmark", "×"); remove.type = "button"; remove.setAttribute("aria-label", `Удалить ${bookmark.name || "закладку"}`);
     const customize = el("div", "bookmark-edit-tools");
+    const details = el("details", "bookmark-icon-details");
+    const summary = el("summary", "", "Настроить значок");
+    summary.append(el("span", "bookmark-details-hint", "Символ, цвет или изображение"));
+    details.append(summary, customize);
     const icon = document.createElement("input"); icon.type = "text"; icon.value = bookmark.icon?.startsWith("data:image/") ? "" : bookmark.icon || ""; icon.placeholder = "❄"; icon.maxLength = 6; icon.setAttribute("aria-label", "Символ или эмодзи значка");
     const color = document.createElement("input"); color.type = "color"; color.value = /^#[\da-f]{6}$/i.test(bookmark.color || "") ? bookmark.color : "#667a82"; color.title = "Цвет значка"; color.setAttribute("aria-label", "Цвет значка закладки");
     const uploadIcon = document.createElement("input"); uploadIcon.type = "file"; uploadIcon.accept = "image/png,image/jpeg,image/webp"; uploadIcon.hidden = true;
@@ -1807,52 +1900,71 @@ function renderBookmarkSettings(content) {
       if (nextUrl && !/^https?:\/\//i.test(nextUrl)) nextUrl = `https://${nextUrl}`;
       if (nextUrl) {
         try { const parsed = new URL(nextUrl); if (!/^https?:$/.test(parsed.protocol)) throw new Error(); }
-        catch { showToast("Проверь адрес сайта"); return; }
+        catch { url.setCustomValidity("Проверь адрес сайта"); url.reportValidity(); return; }
       }
+      url.setCustomValidity("");
       const oldIcon = settings.bookmarks[index].icon || "";
       const nextIcon = replaceIcon ? icon.value.trim() : oldIcon.startsWith("data:image/") ? oldIcon : icon.value.trim();
       settings.bookmarks[index] = { ...settings.bookmarks[index], name: name.value.trim() || "Сайт", url: nextUrl, color: color.value, icon: nextIcon };
       url.value = nextUrl;
+      refreshPreview();
       renderBookmarks(); await saveSettings();
     };
     name.addEventListener("change", () => commit()); url.addEventListener("change", () => commit());
+    url.addEventListener("input", () => url.setCustomValidity(""));
     icon.addEventListener("change", () => commit(true)); color.addEventListener("change", () => commit());
     uploadIcon.addEventListener("change", () => {
       const file = uploadIcon.files?.[0];
       if (!file) return;
       if (file.size > 256 * 1024) { showToast("Иконка должна быть меньше 256 КБ"); uploadIcon.value = ""; return; }
       if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { showToast("Поддерживаются PNG, JPG и WebP"); uploadIcon.value = ""; return; }
+      const uploadTarget = settings.bookmarks[index];
       const reader = new FileReader();
       reader.onload = async () => {
-        settings.bookmarks[index].icon = String(reader.result);
+        const currentIndex = settings.bookmarks.indexOf(uploadTarget);
+        if (currentIndex === -1) { showToast("Сайт изменён. Выбери изображение ещё раз."); return; }
+        settings.bookmarks[currentIndex].icon = String(reader.result);
         icon.value = "";
         renderBookmarks();
         await saveSettings();
+        refreshPreview();
         showToast("Иконка обновлена");
       };
+      reader.onerror = () => showToast("Не удалось прочитать значок");
       reader.readAsDataURL(file);
     });
     resetIcon.addEventListener("click", async () => {
       settings.bookmarks[index].icon = "";
       icon.value = "";
+      refreshPreview();
       renderBookmarks();
       await saveSettings();
     });
-    remove.addEventListener("click", async () => { settings.bookmarks.splice(index, 1); renderBookmarks(); renderDrawer(); await saveSettings(); });
-    const moveUp = el("button", "bookmark-tool-button", "↑"); moveUp.type = "button"; moveUp.title = "Переместить выше"; moveUp.disabled = index === 0;
-    const moveDown = el("button", "bookmark-tool-button", "↓"); moveDown.type = "button"; moveDown.title = "Переместить ниже"; moveDown.disabled = index === bookmarks.length - 1;
+    remove.addEventListener("click", async () => { settings.bookmarks.splice(index, 1); renderBookmarks(); rebuildList(); await saveSettings(); });
+    const moveUp = el("button", "bookmark-tool-button", "↑"); moveUp.type = "button"; moveUp.title = "Переместить выше"; moveUp.setAttribute("aria-label", "Переместить выше: " + bookmark.name); moveUp.disabled = index === 0;
+    const moveDown = el("button", "bookmark-tool-button", "↓"); moveDown.type = "button"; moveDown.title = "Переместить ниже"; moveDown.setAttribute("aria-label", "Переместить ниже: " + bookmark.name); moveDown.disabled = index === bookmarks.length - 1;
     const move = async (direction) => {
       const target = index + direction;
       if (target < 0 || target >= settings.bookmarks.length) return;
       [settings.bookmarks[index], settings.bookmarks[target]] = [settings.bookmarks[target], settings.bookmarks[index]];
-      await saveSettings(); renderBookmarks(); renderDrawer();
+      await saveSettings(); renderBookmarks(); rebuildList(target);
     };
     moveUp.addEventListener("click", () => move(-1)); moveDown.addEventListener("click", () => move(1));
-    customize.append(icon, color, uploadButton, resetIcon, moveUp, moveDown, uploadIcon);
-    row.append(name, url, remove);
-    editItem.append(row, customize);
+    const symbolField = el("label", "bookmark-icon-field"); symbolField.append(el("span", "", "Символ"), icon);
+    const colorField = el("label", "bookmark-icon-field"); colorField.append(el("span", "", "Цвет"), color);
+    customize.append(symbolField, colorField, uploadButton, resetIcon, uploadIcon);
+    const fields = el("div", "bookmark-editor-fields");
+    const nameField = el("label", "bookmark-editor-field"); nameField.append(el("span", "", "Название"), name);
+    const urlField = el("label", "bookmark-editor-field"); urlField.append(el("span", "", "Адрес сайта"), url);
+    fields.append(nameField, urlField);
+    const controls = el("div", "bookmark-editor-controls"); controls.append(moveUp, moveDown, remove);
+    row.append(preview, fields, controls);
+    editItem.append(row, details);
     list.append(editItem);
   });
+  const appearance = el("details", "bookmark-appearance-details");
+  appearance.append(el("summary", "", "Вид и расположение избранного"));
+  while (section.firstChild && section.firstChild !== listHeading) appearance.append(section.firstChild);
   section.append(list);
   const add = el("button", "drawer-button", "＋  Добавить сайт"); add.type = "button";
   add.disabled = bookmarks.length >= 24;
@@ -1862,8 +1974,9 @@ function renderBookmarkSettings(content) {
     await saveSettings(); renderBookmarks(); renderDrawer();
     const inputs = $$(".bookmark-edit-row input", $("#drawerContent")); inputs.at(-2)?.focus(); inputs.at(-2)?.select();
   });
-  const actions = el("div", "button-row"); actions.append(add);
-  section.append(actions);
+  const actions = el("div", "button-row bookmark-add-row"); actions.append(add);
+  section.insertBefore(actions, list);
+  section.append(appearance);
   content.append(section);
   content.append(el("p", "setting-help", "Перетаскивай значки в карточке или используй стрелки для изменения порядка. Карточка растёт по числу закладок. Значок можно задать символом, цветом или своим изображением."));
   renderWidgetSizeSetting(content, "bookmarks", "Размер виджета закладок");
@@ -2277,9 +2390,17 @@ function setupEvents() {
   $("#openGeneralSettings").addEventListener("click", () => openDrawer("general"));
   $("#toggleLayoutEdit").addEventListener("click", () => toggleLayoutEditor());
   $("#finishLayoutEdit").addEventListener("click", () => toggleLayoutEditor(false));
+  $("#cancelLayoutEdit").addEventListener("click", () => {
+    if (layoutEditorSnapshot) Object.assign(settings, structuredClone(layoutEditorSnapshot));
+    toggleLayoutEditor(false);
+  });
+  $("#toggleEditorGrid").addEventListener("click", () => {
+    const hidden = document.body.classList.toggle("editor-grid-hidden");
+    $("#toggleEditorGrid").setAttribute("aria-pressed", String(!hidden));
+  });
   $("#resetWidgetLayout").addEventListener("click", () => {
     settings.widgetLayout = JSON.parse(JSON.stringify(WIDGET_LAYOUT_DEFAULTS));
-    settings.layoutMode = "free";
+    settings.layoutMode = document.body.classList.contains("layout-editing") ? "custom" : "free";
     renderWidgetLayout();
     saveSettings();
   });
@@ -2297,16 +2418,16 @@ function setupEvents() {
   });
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $("#drawerScrim").addEventListener("click", closeDrawer);
-  $$(".widget[data-widget]").forEach((widget) => {
-    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); if (event.target.closest(".bookmark-item")) return; if (widget.dataset.widget === "weather") toggleWeatherPanel(false); openDrawer(widget.dataset.widget); });
-    widget.addEventListener("keydown", (event) => { if (event.target === widget && event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });
+  $("#weatherPanel").addEventListener("cancel", (event) => { event.preventDefault(); toggleWeatherPanel(false); });
+  $("#weatherPanel").addEventListener("click", (event) => {
+    if (event.target !== event.currentTarget) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) toggleWeatherPanel(false);
   });
-  // Клик по погоде раскрывает прогноз на ближайшие часы. Двойной клик всё равно
-  // откроет настройки (см. выше), поэтому панель просто закрывается перед этим.
   $(".weather-card").addEventListener("click", (event) => {
     if (document.body.classList.contains("layout-editing") || document.body.classList.contains("drawer-open")) return;
     if (event.detail > 1) return;
-    pendingNavigation = setTimeout(() => toggleWeatherPanel(), 220);
+    toggleWeatherPanel();
   });
   document.addEventListener("click", (event) => {
     if (weatherPanelOpen && !event.target.closest("#weatherPanel") && !event.target.closest(".weather-card")) toggleWeatherPanel(false);

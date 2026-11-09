@@ -15,12 +15,19 @@ source+=`\n(async()=>{
  setupSettingsSync();refreshSettingsView=()=>{};
  await listener({brightness:{newValue:90}},'local');assert.equal(settings.brightness,90);
  settings.city='London';await listener({city:{newValue:'Berlin'}},'local');assert.equal(settings.city,'London');
- const imported=normalizeImportedSettings({hiddenWidgets:['clock','unknown','clock'],position:'50% 37%'});assert.equal(imported.hiddenWidgets.join(),'clock');assert.equal(imported.position,'50% 37%');
+ const imported=normalizeImportedSettings({hiddenWidgets:['clock','unknown','clock'],position:'50% 37%'});assert.equal(imported.hiddenWidgets.join(),'clock');assert.equal(imported.position,'50% 37%');assert.equal(normalizeImportedSettings({surfaceStyle:'frosted'}).surfaceStyle,'frosted');assert.equal(normalizeImportedSettings({surfaceStyle:'invalid'}).surfaceStyle,'metal');
  settings.city='Tokyo';const data={city:'Tokyo',place:{name:'Tokyo',latitude:1,longitude:1},at:Date.now(),timeseries:[{time:new Date().toISOString(),data:{instant:{details:{air_temperature:18}},next_1_hours:{summary:{symbol_code:'clearsky_day'}}}}]};
  localStorage.setItem(WEATHER_CACHE_KEY,JSON.stringify(data));let requests=0;globalThis.fetch=async()=>{requests++;throw Error('offline')};
  await updateWeather();assert.equal(requests,0);assert.equal(document.querySelector('#weatherTemp').textContent,'18°');
  await updateWeather(true);assert.equal(requests,1);assert.equal(document.querySelector('#weatherTemp').textContent,'18°');assert.ok(document.querySelector('.weather-card').title.includes('Последний прогноз'));
  assert.ok(weatherSvg('☀').includes('<svg'));assert.equal(compareVersions('2.0.1','2.0'),1);
+
+ const panel=document.querySelector('#weatherPanel');let opened=0,closed=0;
+ panel.showModal=()=>opened++;panel.close=()=>closed++;
+ renderWeatherPanel=()=>{};hideIdleClock=()=>{};resetIdleTimer=()=>{};
+ document.querySelector('#closeWeather').focus=()=>{};
+ toggleWeatherPanel(true);assert.equal(opened,1);assert.equal(weatherPanelOpen,true);
+ toggleWeatherPanel(false);assert.equal(closed,1);assert.equal(weatherPanelOpen,false);
  console.log('PASS: changed-field writes, nested edits, cross-tab updates, unsaved edit protection, backup normalization, weather cache, offline fallback, SVG and versions');
 })()`;
 vm.runInContext(source,context).catch(e=>{console.error(e);process.exitCode=1});

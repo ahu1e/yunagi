@@ -317,56 +317,45 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Всплывающая карточка прогноза: открывается кликом по погоде, позиционируется
-   по карточке (см. positionWeatherPanel) и живёт отдельно от виджетов,
-   чтобы её не резал layout холста. */
+/* Centered weather dialog; native top layer handles focus and backdrop. */
 .weather-panel {
-  position: fixed;
-  z-index: 40;
-  display: flex;
-  width: 268px;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-card);
-  background-color: var(--glass-color);
-  background-image: var(--glass-image);
-  box-shadow: var(--shadow-card-raised);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  opacity: 0;
-  pointer-events: none;
-  translate: 0 -6px;
-  transition: opacity var(--t) var(--ease), translate var(--t) var(--ease);
+  position: fixed; inset: 50% auto auto 50%; margin: 0; transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-x: hidden; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.2) transparent; overscroll-behavior: contain;
+  padding: 24px; color: var(--text); border: 1px solid rgba(255,255,255,.2); border-radius: 30px;
+  background-color: var(--glass-color); background-image: var(--glass-image);
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 28px 100px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
 }
-.weather-panel.is-open { opacity: 1; pointer-events: auto; translate: 0 0; }
-.weather-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.weather-panel-place {
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.weather-panel-now { color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.weather-panel-stats { display: flex; gap: 16px; }
-.weather-panel-stat { display: flex; flex-direction: column; gap: 3px; }
-.weather-panel-stat-label {
-  color: var(--faint);
-  font-size: var(--fs-label);
-  font-weight: 650;
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-}
-.weather-panel-stat-value { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.weather-panel-hours { display: flex; justify-content: space-between; gap: 6px; }
-.weather-panel-hour { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px; }
-.weather-panel-hour-time { color: var(--faint); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.weather-panel-hour-icon { font-size: 17px; line-height: 1; }
-.weather-panel-hour-temp { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.weather-panel-empty { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
+.weather-panel > * { flex-shrink: 0; min-width: 0; }
+.weather-panel:not([open]) { display: none; }
+.weather-panel[open] { display: flex; flex-direction: column; gap: 22px; animation: weather-reveal .24s ease-out; }
+.weather-panel::backdrop { background: rgba(5,7,10,.4); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+@keyframes weather-reveal { from { opacity: 0; translate: 0 8px; } to { opacity: 1; translate: 0 0; } }
+.weather-dialog-header, .weather-dialog-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.weather-dialog-title { margin: 0; font-size: 13px; font-weight: 500; color: var(--muted); }
+.weather-dialog-actions { display: flex; gap: 6px; }
+.weather-dialog-button { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; background: rgba(255,255,255,.04); color: var(--muted); cursor: pointer; }
+.weather-dialog-button:hover { color: white; background: rgba(255,255,255,.12); }
+.weather-dialog-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.weather-dialog-copy { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.weather-panel-place { font-size: 18px; font-weight: 500; overflow-wrap: anywhere; }
+.weather-dialog-temp { font-size: 68px; line-height: 1.1; font-weight: 350; letter-spacing: -.065em; }
+.weather-dialog-description { font-size: 13px; color: var(--muted); }
+.weather-dialog-icon { flex: 0 0 86px; color: var(--accent); }
+.weather-dialog-icon svg { width: 86px; height: 86px; fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.weather-section-title { margin: 0 0 -10px; font-size: 11px; font-weight: 500; color: var(--faint); }
+.weather-panel-hours { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 2px 0 8px; }
+.weather-panel-hour { display: flex; min-width: 0; align-items: center; flex-direction: column; gap: 12px; padding: 14px 5px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.045); }
+.weather-panel-hour-time { font-size: 11px; color: var(--muted); }
+.weather-panel-hour-icon { font-size: 24px; line-height: 1; }
+.weather-panel-hour-temp { font-size: 15px; font-weight: 500; }
+.weather-panel-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.09); }
+.weather-panel-stat { display: flex; flex-direction: column; gap: 9px; }
+.weather-panel-stat-label { font-size: 11px; color: var(--faint); }
+.weather-panel-stat-value { font-size: 15px; font-weight: 500; }
+.weather-dialog-status { margin: -4px 0 0; font-size: 10px; color: var(--faint); }
+.weather-panel-empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
 
 /* ---------- 9. Закладки ---------- */
 .bookmarks-card {
@@ -464,23 +453,8 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .22));
 }
-/* --- Стиль значков: монохром и «тонированные» (переключается в настройках) ---
-   Монохром: filter на плитке красит разом всё содержимое — градиент фона,
-   фавикон, свою картинку и эмодзи. Тонированные: оверлей с mix-blend-mode:
-   color перекрашивает всё в оттенок --accent, беря яркость из фона, — как
-   tinted-иконки в iOS. Важно: у плитки здесь НЕ должно быть filter — он
-   изолирует blend-группу, и оверлей перестаёт смешиваться. */
+/* Monochrome bookmark icons. */
 body.icons-mono .bookmark-icon { filter: grayscale(1); }
-body.icons-tint .bookmark-icon { position: relative; }
-body.icons-tint .bookmark-icon::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--accent, #9db8c4);
-  mix-blend-mode: color;
-  pointer-events: none;
-}
 .empty-bookmarks {
   padding: 16px 4px;
   color: var(--faint);
@@ -1391,78 +1365,56 @@ input[type="range"]:focus-visible { outline: 2px solid rgba(255, 255, 255, .8); 
 
 /* ---------- 17. Редактор раскладки ---------- */
 .layout-edit-bar {
-  position: fixed;
-  z-index: 15;
-  bottom: 22px;
-  left: 50%;
-  display: flex;
-  max-width: calc(100vw - 24px);
-  align-items: center;
-  gap: 11px;
-  padding: 11px 14px;
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: var(--r-surface);
-  background: rgba(25, 28, 30, .95);
-  box-shadow: var(--shadow-float);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, 12px);
-  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  backdrop-filter: blur(18px) saturate(1.3);
+  position: fixed; z-index: 15; top: 24px; bottom: auto; left: 50%;
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  width: min(700px, calc(100vw - 480px)); max-width: calc(100vw - 32px);
+  gap: 16px 24px; padding: 18px 20px 12px;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 22px;
+  background: linear-gradient(135deg, rgba(38,41,45,.94), rgba(22,24,28,.96));
+  box-shadow: 0 16px 60px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, -10px);
+  transition: opacity .2s ease, transform .2s ease, visibility .2s;
 }
-.layout-edit-bar[aria-hidden="false"] { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
-.layout-edit-bar > span { color: rgba(255, 255, 255, .78); font-size: var(--fs-caption); line-height: 1.4; }
-
+.layout-edit-bar[aria-hidden="false"] { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); }
+.editor-heading { display: grid; gap: 5px; white-space: nowrap; }
+.editor-kicker { font-size: 9px; letter-spacing: .17em; color: rgba(255,255,255,.42); }
+.editor-heading strong { font-size: 14px; font-weight: 550; letter-spacing: -.02em; }
+.editor-actions { display: flex; align-items: center; gap: 6px; }
+.editor-tool { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: rgba(255,255,255,.65); font: inherit; font-size: 11px; cursor: pointer; transition: background .16s, color .16s; }
+.editor-tool:hover { background: rgba(255,255,255,.08); color: white; }
+.editor-tool[aria-pressed="true"] { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
+.editor-tool svg, .editor-done svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.editor-divider { width: 1px; height: 20px; margin: 0 3px; background: rgba(255,255,255,.1); }
+.editor-done { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border-radius: 11px; font-size: 11px; }
+.editor-footer { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 16px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.07); color: rgba(255,255,255,.5); font-size: 10px; line-height: 1.5; }
+.editor-key-hint { color: rgba(255,255,255,.3); white-space: nowrap; }
 .layout-drag-handle, .layout-resize-handle {
-  display: none;
-  position: absolute;
-  z-index: 5;
-  width: 30px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .4);
-  border-radius: 9px;
-  background: rgba(24, 27, 29, .95);
-  color: white;
-  font-size: 16px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  display: none; position: absolute; z-index: 5; align-items: center; justify-content: center;
+  border: 1px solid rgba(255,255,255,.2); background: #282c31; color: rgba(255,255,255,.85);
+  box-shadow: 0 3px 10px rgba(0,0,0,.2); touch-action: none; user-select: none;
 }
-.layout-drag-handle { top: 6px; left: 6px; }
-.layout-resize-handle { right: 6px; bottom: 6px; cursor: nwse-resize; }
-
-/* В режиме редактирования маркеры уезжают на поля карточки,
-   чтобы не перекрывать заголовок и нижний ряд закладок. */
-body.layout-editing .bookmarks-card .card-heading { padding-left: 22px; }
-body.layout-editing .bookmarks-card { padding-bottom: 36px; }
-
+.layout-drag-handle { top: -13px; left: 12px; height: 25px; gap: 5px; padding: 0 9px 0 5px; border-radius: 8px; cursor: grab; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.layout-drag-handle svg { width: 12px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.layout-resize-handle { right: -6px; bottom: -6px; width: 21px; height: 21px; border-radius: 7px; cursor: nwse-resize; }
+.layout-resize-handle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 body.layout-editing .canvas::before {
-  position: fixed;
-  z-index: 1;
-  inset: var(--gutter-y) var(--gutter-x);
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, .1) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, .1) 1px, transparent 1px);
-  background-size: calc(100% / 24) calc(100% / 12);
-  content: "";
-  pointer-events: none;
+  position: fixed; z-index: 1; inset: var(--gutter-y) var(--gutter-x); content: ""; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255,255,255,.26) 1px, transparent 1.3px);
+  background-size: calc(100% / 24) calc(100% / 12); opacity: .65;
 }
-body.layout-editing [data-layout-item] { outline: 1px dashed rgba(255, 255, 255, .7); box-shadow: 0 0 0 3px rgba(235, 229, 216, .1); }
-body.layout-editing [data-layout-item] .layout-drag-handle,
-body.layout-editing [data-layout-item] .layout-resize-handle { display: grid; }
-body.layout-editing [data-layout-item].is-layout-active {
-  z-index: 8;
-  outline: 2px solid var(--accent);
-  box-shadow: 0 0 0 4px rgba(243, 238, 227, .16);
-  opacity: .92;
-}
-body.layout-editing .layout-trigger,
-body.layout-editing .settings-trigger,
-body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
+body.layout-editing.editor-grid-hidden .canvas::before { opacity: 0; }
+body.layout-editing [data-layout-item] { overflow: visible; outline: 1px solid rgba(255,255,255,.25); outline-offset: 3px; transition: outline-color .15s, box-shadow .15s; }
+body.layout-editing [data-layout-item="search"] { border-radius: 18px; }
+body.layout-editing [data-layout-item]:hover { outline-color: rgba(255,255,255,.55); }
+body.layout-editing [data-layout-item] .layout-drag-handle, body.layout-editing [data-layout-item] .layout-resize-handle { display: flex; }
+body.layout-editing [data-layout-item].is-layout-selected { outline-color: #c5d8ee; box-shadow: 0 0 0 4px rgba(176,205,239,.09); }
+body.layout-editing [data-layout-item].is-layout-selected .layout-drag-handle,
+body.layout-editing [data-layout-item].is-layout-selected .layout-resize-handle { background: #c5d8ee; border-color: #dce9f9; color: #202a35; }
+body.layout-editing [data-layout-item].is-layout-active { z-index: 8; outline: 1px solid #dce9f9; box-shadow: 0 12px 40px rgba(0,0,0,.2), 0 0 0 4px rgba(176,205,239,.12); }
+body.layout-dragging, body.layout-dragging * { cursor: grabbing !important; user-select: none !important; }
+body.layout-editing .layout-trigger, body.layout-editing .settings-trigger, body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
+body.layout-editing .bookmark-item { cursor: default; }
 
 /* ---------- 18. Адаптив ---------- */
 @media (max-width: 640px) {
@@ -1485,9 +1437,6 @@ body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
   .focus-trigger { right: calc(var(--gutter-x) + 50px); }
   .layout-trigger { right: calc(var(--gutter-x) + 100px); }
   .focus-panel { padding: 22px 20px 20px; }
-  .layout-edit-bar { bottom: 10px; gap: 8px; padding: 9px; justify-content: center; flex-wrap: wrap; width: calc(100vw - 24px); }
-  .layout-edit-bar > span { width: 100%; text-align: center; }
-  .layout-edit-bar .drawer-button { min-height: 34px; padding: 0 12px; }
   .settings-drawer { width: calc(100vw - 20px); height: calc(100dvh - 20px); }
   /* На узких экранах боковая навигация превращается в ленту чипов сверху */
   .drawer-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
@@ -1525,7 +1474,6 @@ body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
   .left-stack[data-position="center"] { top: 50%; }
   .left-stack[data-position="bottom"] { top: auto; }
   .bookmarks-card { max-height: calc(100vh - 150px); overflow: auto; }
-  .layout-edit-bar { bottom: 8px; }
 }
 
 /* ---------- 20. Уменьшенное движение ---------- */
@@ -1549,3 +1497,135 @@ body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
 .weather-icon svg, #idleWeatherIcon svg, .weather-panel-hour-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
 
 .wallpaper-preview { height: 150px; margin: 16px 0; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; background-size: cover; cursor: crosshair; touch-action: none; }
+
+/* Keep the editor above the canvas on compact windows. */
+@media (max-width: 1100px) {
+  .layout-edit-bar { width: min(620px, calc(100vw - 40px)); top: 16px; bottom: auto; }
+}
+@media (max-width: 640px) {
+  .layout-edit-bar { display: grid; grid-template-columns: 1fr; width: calc(100vw - 24px); top: 12px; bottom: auto; padding: 14px; gap: 12px; border-radius: 18px; }
+  .editor-heading { gap: 3px; }
+  .editor-actions { flex-wrap: wrap; }
+  .editor-footer { grid-column: 1; padding-top: 9px; }
+  .editor-key-hint { display: none; }
+}
+
+/* Surface collection: appearance is independent of accent and wallpaper. */
+:root, :root[data-surface="metal"] {
+  --glass-color: rgba(18,19,22,.78);
+  --glass-color-hover: rgba(26,28,32,.82);
+  --glass-image: linear-gradient(145deg, rgba(255,255,255,.065), transparent 48%, rgba(255,255,255,.015));
+  --glass-blur: blur(30px) saturate(.85);
+  --material-edge: conic-gradient(from 30deg, rgba(255,255,255,.04), rgba(255,255,255,.08) 15%, rgba(226,232,239,.55) 20%, rgba(255,255,255,.04) 27%, rgba(255,255,255,.06) 58%, rgba(187,207,196,.4) 64%, rgba(255,255,255,.07) 71%, rgba(255,255,255,.6) 86%, rgba(255,255,255,.04) 93%);
+}
+:root[data-surface="frosted"] {
+  --glass-color: rgba(67,71,78,.46); --glass-color-hover: rgba(83,88,96,.5);
+  --glass-image: linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.025) 70%);
+  --glass-blur: blur(46px) saturate(.8);
+  --material-edge: linear-gradient(135deg, rgba(255,255,255,.42), rgba(255,255,255,.06) 45%, rgba(255,255,255,.16));
+}
+:root[data-surface="clear"] {
+  --glass-color: rgba(20,24,30,.22); --glass-color-hover: rgba(35,40,48,.3);
+  --glass-image: linear-gradient(135deg, rgba(255,255,255,.09), transparent 65%);
+  --glass-blur: blur(16px) saturate(1.3);
+  --material-edge: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.04) 60%, rgba(255,255,255,.2));
+}
+.glass { border-color: rgba(255,255,255,.07); box-shadow: 0 10px 30px -12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04); }
+.glass::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: var(--material-edge); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; pointer-events: none; opacity: .65; transition: opacity .3s; }
+.glass:hover::before, .search-box:focus-within::before { opacity: 1; }
+.weather-card { min-height: 112px; gap: 13px; padding: 19px 18px; }
+.weather-temp { font-size: 32px; font-weight: 450; letter-spacing: -.055em; }
+.weather-icon { font-size: 34px; color: var(--accent); filter: none; }
+.weather-city { font-size: 12px; font-weight: 500; }
+.weather-description { font-size: 10px; line-height: 1.35; color: var(--faint); }
+.bookmarks-card { padding: 18px 16px; }
+.card-heading { font-size: 9px; font-weight: 500; letter-spacing: .14em; margin-bottom: 16px; }
+.bookmark-grid { row-gap: 18px; }
+.bookmark-icon { border-color: rgba(255,255,255,.09); background: linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.015)); box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 10px rgba(0,0,0,.12); font-weight: 500; }
+.bookmark-name { font-size: 10px; color: var(--muted); font-weight: 400; }
+.bookmarks-card.is-single-column .bookmark-grid { row-gap: 16px; }
+.date-card { padding: 18px 20px; gap: 3px; }
+.date-weekday { font-weight: 450; letter-spacing: .1em; color: var(--faint); font-size: 10px; }
+.date-day { font-weight: 350; }
+.date-month { font-weight: 450; }
+.date-year { font-size: 10px; opacity: .7; }
+.clock-card { padding: 18px; gap: 16px; }
+.analog-clock { width: 42px; height: 42px; flex-basis: 42px; border-color: rgba(255,255,255,.17); background: rgba(255,255,255,.025); box-shadow: none; }
+.digital-time { font-weight: 450; letter-spacing: -.045em; }
+.clock-card[data-display="digital"] .digital-time { font-weight: 350; }
+.search-box { border-radius: 22px; }
+.search-box input { font-size: 14px; }
+.engine-button { border-radius: 50%; border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-weight: 500; }
+.surface-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 18px 0; }
+.surface-option { display: flex; flex-direction: column; align-items: stretch; gap: 9px; min-width: 0; padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: rgba(255,255,255,.025); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.surface-option[aria-pressed="true"] { border-color: rgba(255,255,255,.5); background: rgba(255,255,255,.07); }
+.surface-option strong { font-size: 11px; font-weight: 500; }
+.surface-option-description { font-size: 10px; line-height: 1.4; color: var(--faint); }
+.surface-sample { display: grid; height: 72px; place-items: center; border-radius: 10px; background: radial-gradient(ellipse at 15% 80%, #59665d, transparent 65%), radial-gradient(ellipse at 85% 10%, #696577, #202329); }
+.surface-sample-clock { padding: 10px 15px; border: 1px solid rgba(255,255,255,.2); border-radius: 13px; font-size: 18px; font-weight: 350; background: rgba(18,19,22,.85); }
+[data-surface-choice="frosted"] .surface-sample-clock { background: rgba(130,134,142,.5); border-color: rgba(255,255,255,.4); }
+[data-surface-choice="clear"] .surface-sample-clock { background: rgba(255,255,255,.05); }
+@media(max-width: 480px) { .surface-options { grid-template-columns: 1fr; } .surface-sample { height: 60px; } .weather-panel { padding: 20px; } }
+@media(prefers-reduced-motion: reduce) { .weather-panel[open] { animation: none; } }
+
+/* Quiet polished edge: fixed highlights on a nearly black surface. */
+:root[data-surface="metal"] {
+  --glass-color: rgba(15,16,18,.92);
+  --glass-color-hover: rgba(20,21,23,.94);
+  --glass-image: url("assets/metal-grain.svg"), linear-gradient(155deg, rgba(255,255,255,.025), transparent 55%);
+  --material-edge: conic-gradient(from 12deg, rgba(255,255,255,.07) 0deg, rgba(255,255,255,.08) 30deg, rgba(230,234,235,.48) 43deg, rgba(255,255,255,.09) 55deg, rgba(255,255,255,.035) 150deg, rgba(255,255,255,.12) 205deg, rgba(218,224,225,.3) 225deg, rgba(255,255,255,.05) 245deg, rgba(255,255,255,.07) 360deg);
+}
+:root[data-surface="metal"] :is(.glass, .weather-panel) {
+  border-color: rgba(255,255,255,.045);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025), 0 12px 30px -18px rgba(0,0,0,.6);
+}
+:root[data-surface="metal"] .glass::before { padding: 1px; opacity: .7; }
+:root[data-surface="metal"] .glass:hover::before { opacity: .85; }
+:root[data-surface="metal"] .weather-panel { background-color: rgba(15,16,18,.96); }
+:root[data-surface="metal"] .weather-panel::before,
+[data-surface-choice="metal"] .surface-sample-clock::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+  background: conic-gradient(from 12deg, #ffffff0d, #ffffff12 30deg, #dfe5e670 43deg, #ffffff12 55deg, #ffffff08 150deg, #ffffff18 205deg, #dfe5e645 225deg, #ffffff0c 245deg, #ffffff0d);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude; pointer-events: none;
+}
+[data-surface-choice="metal"] .surface-sample-clock { position: relative; border-color: transparent; background: url("assets/metal-grain.svg"), #111214; }
+
+/* Favorites editor: one site per card, secondary controls stay folded away. */
+.bookmark-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 12px; }
+.bookmark-list-heading h2 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.02em; }
+.bookmark-list-heading > span { padding: 4px 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 20px; font-size: 11px; color: var(--muted); }
+.bookmark-add-row { margin: 0 0 16px; }
+.bookmark-add-row .drawer-button { width: 100%; border-style: dashed; background: rgba(255,255,255,.025); }
+.bookmark-edit-item { padding: 16px; margin-bottom: 12px; border-radius: 18px; background: rgba(255,255,255,.025); border-color: rgba(255,255,255,.08); }
+.bookmark-edit-row { display: grid; grid-template-columns: 44px minmax(0,1fr) 30px; align-items: center; gap: 14px; margin: 0; }
+.bookmark-editor-preview { display: grid; place-items: center; width: 44px; height: 44px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: linear-gradient(145deg, color-mix(in srgb,var(--bookmark-color) 22%,#25282d),#15171b); color: white; font-size: 19px; }
+.bookmark-editor-fields { display: grid; gap: 10px; min-width: 0; }
+.bookmark-editor-field { display: grid; gap: 5px; min-width: 0; }
+.bookmark-editor-field > span, .bookmark-icon-field > span { font-size: 10px; color: var(--faint); }
+.bookmark-edit-row input { height: 35px; border-color: rgba(255,255,255,.065); background: rgba(255,255,255,.03); font-size: 12px; padding: 0 10px; border-radius: 9px; }
+.bookmark-editor-controls { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bookmark-editor-controls :is(.bookmark-tool-button,.remove-bookmark) { min-width: 28px; width: 28px; height: 28px; padding: 0; border-color: transparent; background: transparent; }
+.bookmark-editor-controls .remove-bookmark { margin-top: 3px; }
+.bookmark-editor-controls :is(.bookmark-tool-button,.remove-bookmark):hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.bookmark-editor-controls .remove-bookmark:hover { color: #ffb4b4; }
+.bookmark-icon-details { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 10px; }
+.bookmark-icon-details summary, .bookmark-appearance-details > summary { color: var(--muted); font-size: 11px; cursor: pointer; padding: 4px 0; }
+.bookmark-details-hint { display: block; padding: 5px 0 0 14px; font-size: 10px; color: var(--faint); }
+.bookmark-icon-details[open] summary { margin-bottom: 14px; }
+.bookmark-icon-details[open] .bookmark-details-hint { display: none; }
+.bookmark-edit-tools { flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.bookmark-icon-field { display: flex; flex-direction: column; gap: 6px; }
+.bookmark-icon-field input[type="text"] { width: 76px; flex: none; }
+.bookmark-edit-tools .bookmark-tool-button { height: 34px; background: rgba(255,255,255,.035); }
+.bookmark-appearance-details { border-top: 1px solid rgba(255,255,255,.09); padding-top: 16px; margin-top: 22px; }
+.bookmark-appearance-details > summary { font-size: 12px; }
+.bookmark-appearance-details[open] > summary { margin-bottom: 12px; }
+@media (max-width: 480px) {
+  .bookmark-edit-item { padding: 12px; }
+  .bookmark-edit-row { grid-template-columns: 34px minmax(0,1fr) 26px; gap: 9px; }
+  .bookmark-editor-preview { width: 34px; height: 34px; border-radius: 11px; }
+  .bookmark-editor-preview .bookmark-favicon { width: 22px; height: 22px; }
+}
