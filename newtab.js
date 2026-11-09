@@ -28,6 +28,7 @@ const DEFAULTS = {
   videoEnabled: false,
   parallaxEnabled: false,
   widgetSizes: { weather: 100, bookmarks: 100, date: 100, clock: 100 },
+  hiddenWidgets: [],
   faviconEnabled: true,
   iconStyle: "color",
   layoutMode: "free",
@@ -122,6 +123,20 @@ function weatherPresentation(symbol) {
   return ["☁", "Облачно"];
 }
 
+function weatherSvg(icon) {
+  const cloud = '<path d="M6 17h11a4 4 0 0 0 .2-8A5.5 5.5 0 0 0 6.6 8 4.5 4.5 0 0 0 6 17Z"/>';
+  const sun = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/>';
+  const snow = '<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3"/>';
+  let paths = cloud;
+  if (icon === "☀") paths = sun;
+  else if (icon === "❄") paths = snow;
+  else if (icon === "⛈") paths += '<path d="m12 14-3 5h4l-2 4"/>';
+  else if (["🌧", "🌦", "🌨"].includes(icon)) paths += '<path d="m7 20-1 2m6-2-1 2m6-2-1 2"/>';
+  else if (icon === "🌫") paths += '<path d="M4 20h16M7 23h10"/>';
+  else if (["🌤", "⛅"].includes(icon)) paths = '<path d="M5 2v2M1 6h2m5-3L7 4"/><path d="M3 10a4 4 0 1 1 7-3"/>' + cloud;
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">' + paths + '</svg>';
+}
+
 async function fetchWeatherJson(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -173,6 +188,10 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
+let savedSettings = {};
+let saveQueue = Promise.resolve();
+const pendingStorageKeys = new Map();
+
 async function loadSettings() {
   try {
     if (globalThis.chrome?.storage?.local) {
@@ -192,6 +211,7 @@ async function loadSettings() {
     console.warn("yunagi: using default settings", error);
     settings = { ...DEFAULTS, widgetLayout: { ...DEFAULTS.widgetLayout } };
   }
+  savedSettings = structuredClone(settings);
   if (migrateWidgetLayout(settings.widgetLayout)) saveSettings();
 }
 
@@ -210,20 +230,80 @@ function migrateWidgetLayout(layout) {
   return true;
 }
 
-async function saveSettings(options = {}) {
-  try {
-    if (globalThis.chrome?.storage?.local) {
-      const storedSettings = { ...settings };
-      delete storedSettings.customWallpaper;
-      delete storedSettings.customVideo;
-      await chrome.storage.local.set(storedSettings);
-      if (options?.includeMedia) await chrome.storage.local.set({ customWallpaper: settings.customWallpaper, customVideo: settings.customVideo });
-    }
-    else localStorage.setItem("yunagi-settings", JSON.stringify(settings));
-  } catch (error) {
-    console.error("Could not save yunagi settings", error);
-    showToast("Не удалось сохранить настройку");
+function saveSettings(options = {}) {
+  const patch = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (!options.includeMedia && ["customWallpaper", "customVideo"].includes(key)) continue;
+    if (JSON.stringify(value) !== JSON.stringify(savedSettings[key])) patch[key] = structuredClone(value);
   }
+  if (!Object.keys(patch).length) return saveQueue;
+  Object.assign(savedSettings, structuredClone(patch));
+  for (const key of Object.keys(patch)) pendingStorageKeys.set(key, (pendingStorageKeys.get(key) || 0) + 1);
+  const write = async () => {
+    try {
+      if (globalThis.chrome?.storage?.local) await chrome.storage.local.set(patch);
+      else localStorage.setItem("yunagi-settings", JSON.stringify(settings));
+      return true;
+    } catch (error) {
+      for (const key of Object.keys(patch)) delete savedSettings[key];
+      console.error("Could not save yunagi settings", error);
+      showToast("Не удалось сохранить настройку");
+      return false;
+    } finally {
+      for (const key of Object.keys(patch)) {
+        const count = pendingStorageKeys.get(key) - 1;
+        if (count) pendingStorageKeys.set(key, count);
+        else pendingStorageKeys.delete(key);
+      }
+    }
+  };
+  saveQueue = saveQueue.then(write, write);
+  return saveQueue;
+}
+
+function refreshSettingsView() {
+  renderAppearance();
+  renderBookmarks();
+  updateEngineButton();
+  updateClock();
+  $("#focusNote").value = settings.focusNote || "";
+  renderFocusTasks();
+  setSnowEffect(isSnowEffectActive());
+  resetIdleTimer(true);
+}
+
+function setupSettingsSync() {
+  globalThis.chrome?.storage?.onChanged?.addListener(async (changes, area) => {
+    if (area !== "local") return;
+    let changed = false;
+    let weatherChanged = false;
+    for (const [key, change] of Object.entries(changes)) {
+      if (!Object.hasOwn(DEFAULTS, key) || pendingStorageKeys.has(key)) continue;
+      // Keep edits that this tab has not saved yet.
+      if (JSON.stringify(settings[key]) !== JSON.stringify(savedSettings[key])) continue;
+      const value = change.newValue ?? structuredClone(DEFAULTS[key]);
+      if (JSON.stringify(settings[key]) === JSON.stringify(value)) continue;
+      settings[key] = structuredClone(value);
+      savedSettings[key] = structuredClone(value);
+      changed = true;
+      if (["city", "units"].includes(key)) weatherChanged = true;
+    }
+    if (!changed) return;
+    if (settings.videoEnabled && settings.hasCustomVideo && !settings.customVideo) {
+      const media = await chrome.storage.local.get("customVideo");
+      settings.customVideo = media.customVideo || "";
+      savedSettings.customVideo = settings.customVideo;
+    }
+    refreshSettingsView();
+    if (weatherChanged) updateWeather();
+    if (document.body.classList.contains("drawer-open")) {
+      const focused = document.activeElement;
+      const controls = [...$("#settingsDrawer").querySelectorAll("input, select, button, textarea")];
+      const index = controls.indexOf(focused);
+      renderDrawer();
+      $("#settingsDrawer").querySelectorAll("input, select, button, textarea")[index]?.focus();
+    }
+  });
 }
 
 let widgetLayoutFrame = 0;
@@ -355,7 +435,7 @@ function renderWidgetLayout() {
   const widthFor = (cols) => cols * BOOKMARK_COL + (cols - 1) * BOOKMARK_GAP + BOOKMARK_PAD;
   // Справа всегда стоит столбец с календарём и часами — широкой карточке
   // оставляем под него место, иначе на узких окнах виджеты налезут друг на друга.
-  const bookmarkWidthLimit = Math.max(widthFor(1), canvasWidth - 192 * Math.max(widgetScale("date"), widgetScale("clock")) - 16);
+  const bookmarkWidthLimit = Math.max(widthFor(1), canvasWidth - (Math.max(...["date", "clock"].map((key) => settings.hiddenWidgets?.includes(key) ? 0 : 192 * widgetScale(key)))) - 16);
   const bookmarkMaxCols = Math.max(1, Math.min(6, columnsFor(bookmarkWidthLimit / bookmarkScale)));
   // Форму блока задаёт пользователь в редакторе раскладки: ширина ячейки (w) — это
   // и есть ширина карточки, а колонки просто влезают в неё. Хочешь список на 6 в
@@ -370,6 +450,8 @@ function renderWidgetLayout() {
   const positionedItems = [];
   $$('[data-layout-item]').forEach((item) => {
     const key = item.dataset.layoutItem;
+    item.hidden = Array.isArray(settings.hiddenWidgets) && settings.hiddenWidgets.includes(key);
+    if (item.hidden) return;
     const layout = settings.widgetLayout?.[key] || WIDGET_LAYOUT_DEFAULTS[key];
     if (!layout) return;
     item.classList.toggle("is-single-column", key === "bookmarks" && bookmarkColumns === 1);
@@ -494,6 +576,19 @@ function setupWidgetEditor() {
 // на каждый тик слайдера не перезаписывала backgroundImage всего экрана.
 let appliedWallpaperImage = "";
 let appliedWallpaperPosition = "";
+
+async function optimizeWallpaper(source) {
+  const image = new Image();
+  image.src = source;
+  await image.decode();
+  const ratio = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  const optimized = canvas.toDataURL("image/webp", .88);
+  return optimized.length < source.length || ratio < 1 ? optimized : source;
+}
 
 function applyWallpaperImage(wallpaper, value) {
   if (appliedWallpaperImage === value) return;
@@ -669,8 +764,13 @@ function renderBookmarks() {
     return;
   }
   bookmarks.slice(0, 24).forEach((bookmark, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
+    const button = document.createElement(bookmark.url ? "a" : "button");
+    if (bookmark.url) {
+      try {
+        const url = new URL(/^https?:\/\//i.test(bookmark.url) ? bookmark.url : "https://" + bookmark.url);
+        if (["https:", "http:"].includes(url.protocol)) button.href = url.href;
+      } catch { /* An invalid bookmark opens its settings. */ }
+    } else button.type = "button";
     button.className = "bookmark-item";
     button.draggable = true;
     button.dataset.bookmarkIndex = String(index);
@@ -799,42 +899,72 @@ function updateClock() {
   $("#minuteHand").style.transform = `translateX(-50%) rotate(${minute * 6}deg)`;
 }
 
-async function updateWeather() {
+const WEATHER_CACHE_KEY = "yunagi-weather-cache-v1";
+const WEATHER_TTL = 10 * 60 * 1000;
+
+function readWeatherCache() {
+  try { return JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY) || "null"); }
+  catch { return null; }
+}
+
+function paintWeather(data, stale = false) {
+  const current = data.timeseries[0]?.data;
+  const temp = current?.instant?.details?.air_temperature;
+  if (typeof temp !== "number") throw new Error("В ответе сервиса нет температуры");
+  const symbol = current.next_1_hours?.summary?.symbol_code || current.next_6_hours?.summary?.symbol_code || current.next_12_hours?.summary?.symbol_code;
+  const [icon, description] = weatherPresentation(symbol);
+  $("#weatherIcon").innerHTML = weatherSvg(icon);
+  $("#weatherTemp").textContent = displayTemperature(temp);
+  $("#weatherCity").textContent = data.place.name;
+  const age = new Date(data.at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const status = stale ? "Последний прогноз: " + age : description;
+  $(".weather-card").title = status;
+  $(".weather-card").setAttribute("aria-label", description + ", " + displayTemperature(temp) + ", " + data.place.name + (stale ? ". " + status : ""));
+  updateIdleWeather(icon, displayTemperature(temp) + " · " + data.place.name, status);
+  storeWeatherDetails({ place: data.place.name, tempCelsius: temp, current, timeseries: data.timeseries });
+}
+
+async function updateWeather(force = false) {
+  force = force === true;
   const request = ++weatherRequest;
   const city = (settings.city || "Tokyo").trim();
-  $("#weatherCity").textContent = city;
-  $("#weatherTemp").textContent = "—°";
-  $("#weatherIcon").textContent = "☁";
-  updateIdleWeather("☁", "Загружаем погоду…", city);
+  const cache = readWeatherCache();
+  const matching = cache?.city === city && Array.isArray(cache.timeseries) && cache.timeseries.length && cache.place;
+  let cached = false;
+  if (matching) {
+    try { paintWeather(cache, Date.now() - cache.at >= WEATHER_TTL); cached = true; } catch { /* Refetch invalid cache. */ }
+    if (cached && !force && Date.now() - cache.at < WEATHER_TTL) return;
+  }
+  if (!cached) {
+    weatherDetails = null;
+    $("#weatherCity").textContent = city;
+    $("#weatherTemp").textContent = "—°";
+    $("#weatherIcon").innerHTML = weatherSvg("☁");
+    updateIdleWeather("☁", "Загружаем погоду…", city);
+    if (weatherPanelOpen) renderWeatherPanel();
+  }
   try {
-    const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
-    geocodeUrl.search = new URLSearchParams({ name: city, count: "1", language: "ru", format: "json" });
-    const geo = await fetchWeatherJson(geocodeUrl);
-    const place = geo.results?.[0];
-    if (!place) throw new Error("Город не найден");
-    const forecastUrl = new URL("https://api.met.no/weatherapi/locationforecast/2.0/compact");
-    forecastUrl.search = new URLSearchParams({ lat: place.latitude, lon: place.longitude });
-    const forecast = await fetchWeatherJson(forecastUrl);
-    if (request !== weatherRequest) return;
-    const current = forecast.properties?.timeseries?.[0]?.data;
-    const tempCelsius = current?.instant?.details?.air_temperature;
-    if (typeof tempCelsius !== "number") throw new Error("В ответе сервиса нет температуры");
-    const symbol = current.next_1_hours?.summary?.symbol_code || current.next_6_hours?.summary?.symbol_code || current.next_12_hours?.summary?.symbol_code;
-    const [icon, description] = weatherPresentation(symbol);
-    const temperature = settings.units === "fahrenheit" ? Math.round(tempCelsius * 9 / 5 + 32) : Math.round(tempCelsius);
-    $("#weatherIcon").textContent = icon;
-    $("#weatherTemp").textContent = `${temperature}°`;
-    $("#weatherCity").textContent = place.name;
-    $(".weather-card").setAttribute("aria-label", `${description}, ${temperature} градусов в городе ${place.name}. Нажми, чтобы увидеть прогноз, дважды — чтобы настроить`);
-    updateIdleWeather(icon, `${temperature}° · ${place.name}`, description);
-    storeWeatherDetails({ place: place.name, tempCelsius, current, timeseries: forecast.properties?.timeseries || [] });
+    let place = matching ? cache.place : null;
+    if (!place) {
+      const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
+      url.search = new URLSearchParams({ name: city, count: "1", language: "ru", format: "json" });
+      place = (await fetchWeatherJson(url)).results?.[0];
+      if (!place) throw new Error("Город не найден");
+    }
+    const url = new URL("https://api.met.no/weatherapi/locationforecast/2.0/compact");
+    url.search = new URLSearchParams({ lat: place.latitude, lon: place.longitude });
+    const forecast = await fetchWeatherJson(url);
+    if (request !== weatherRequest || city !== settings.city.trim()) return;
+    const data = { city, place, at: Date.now(), timeseries: (forecast.properties?.timeseries || []).slice(0, 8) };
+    paintWeather(data);
+    try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(data)); } catch { /* Cache is optional. */ }
   } catch (error) {
     if (request !== weatherRequest) return;
-    $("#weatherIcon").textContent = "☁";
-    $("#weatherTemp").textContent = "—°";
-    $("#weatherCity").textContent = city;
-    $(".weather-card").title = "Не удалось загрузить погоду. Нажмите дважды, чтобы проверить город.";
-    updateIdleWeather("☁", `Погода недоступна · ${city}`, "Погода недоступна");
+    if (cached) paintWeather(cache, true);
+    else {
+      $(".weather-card").title = "Погода недоступна. Проверь город и подключение.";
+      updateIdleWeather("☁", "Погода недоступна · " + city, "Погода недоступна");
+    }
     console.info("yunagi weather:", error.message);
   }
 }
@@ -908,6 +1038,7 @@ function renderWeatherPanel() {
     weatherDetails.hours.forEach((hour) => {
       const row = el("span", "weather-panel-hour");
       row.append(el("span", "weather-panel-hour-time", hour.label), el("span", "weather-panel-hour-icon", hour.icon), el("span", "weather-panel-hour-temp", hour.temp));
+      row.querySelector(".weather-panel-hour-icon").innerHTML = weatherSvg(hour.icon);
       row.title = hour.description;
       hours.append(row);
     });
@@ -954,7 +1085,7 @@ function showToast(message) {
 }
 
 function updateIdleWeather(icon, text, description) {
-  $("#idleWeatherIcon").textContent = icon;
+  $("#idleWeatherIcon").innerHTML = weatherSvg(icon);
   $("#idleWeatherText").textContent = text;
   $("#idleWeather").title = description;
 }
@@ -1041,6 +1172,7 @@ function el(tag, className, text) {
 
 function drawerHeading(title, description) {
   const heading = el("h1", "drawer-title", title);
+  heading.id = "drawerTitle";
   const paragraph = el("p", "drawer-description", description);
   return [heading, paragraph];
 }
@@ -1088,7 +1220,12 @@ function makeToggle(checked, ariaLabel) {
   return { label, input };
 }
 
+let drawerReturnFocus = null;
+
 function openDrawer(kind = "general") {
+  if (!document.body.classList.contains("drawer-open")) drawerReturnFocus = document.activeElement;
+  $(".canvas").inert = true;
+  $("#settingsDrawer").inert = false;
   clearTimeout(idleTimer);
   idleTimer = 0;
   hideIdleClock();
@@ -1096,10 +1233,14 @@ function openDrawer(kind = "general") {
   renderDrawer();
   document.body.classList.add("drawer-open");
   $("#settingsDrawer").setAttribute("aria-hidden", "false");
-  setTimeout(() => $("#closeDrawer").focus(), 60);
+  setTimeout(() => { if (document.body.classList.contains("drawer-open")) $("#closeDrawer").focus(); }, 60);
 }
 
 function closeDrawer() {
+  const wasOpen = document.body.classList.contains("drawer-open");
+  $(".canvas").inert = false;
+  $("#settingsDrawer").inert = true;
+  if (wasOpen && drawerReturnFocus?.isConnected) drawerReturnFocus.focus();
   document.body.classList.remove("drawer-open");
   $("#settingsDrawer").setAttribute("aria-hidden", "true");
   resetIdleTimer(true);
@@ -1111,7 +1252,7 @@ const DRAWER_PAGES = [
   {
     kind: "general",
     label: "Общие",
-    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"></path><path d="m19.2 13.3 1.1.9-1.1 1.9-1.3-.5a7.4 7.4 0 0 1-1.5.9l-.2 1.4h-2.2l-.4-1.3a7.1 7.1 0 0 1-1.8 0l-.8 1.1-1.9-1.1.4-1.3a7.4 7.4 0 0 1-.9-1.5l-1.4-.2v-2.2l1.3-.4a7.1 7.1 0 0 1 0-1.8l-1.1-.8 1.1-1.9 1.3.4a7.4 7.4 0 0 1 1.5-.9l.2-1.4h2.2l.4 1.3a7.1 7.1 0 0 1 1.8 0l.8-1.1 1.9 1.1-.4 1.3a7.4 7.4 0 0 1 .9 1.5l1.4.2v2.2l-1.3.4c.1.6.1 1.2 0 1.8Z"></path></svg>'
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9-2-.6-2 3.5 1.5 1.6v2.8L2.4 15l2 3.5 2-.6 2 .9L9 21h4l.6-2.2 2-.9 2 .6 2-3.5-1.5-1.6v-2.8L19.6 9l-2-3.5-2 .6-2-.9L13 3Z" transform="translate(1 0)"/><circle cx="12" cy="12" r="3.2"/></svg>'
   },
   { kind: "weather", label: "Погода", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.5h9.3a3.7 3.7 0 0 0 .6-7.35A5.4 5.4 0 0 0 6.3 11.6 3.4 3.4 0 0 0 7 17.5Z"></path></svg>' },
   { kind: "clock", label: "Часы и дата", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"></circle><path d="M12 7.4V12l3.2 1.9"></path></svg>' },
@@ -1148,6 +1289,43 @@ function renderDrawer() {
 
 function renderGeneralSettings(content) {
   content.append(...drawerHeading("Твоё пространство", "Настрой новую вкладку так, чтобы она ощущалась именно твоей."));
+
+  const presets = makeSection("БЫСТРАЯ НАСТРОЙКА");
+  presets.append(el("p", "setting-help", "Пресет меняет видимость и оформление виджетов. Свои сайты и обои сохраняются."));
+  const presetButtons = el("div", "button-row");
+  const choices = [
+    ["Минимализм", { hiddenWidgets: ["weather", "bookmarks", "date"], clockDisplay: "digital", showCaption: false, iconStyle: "mono" }],
+    ["Рабочий стол", { hiddenWidgets: [], clockDisplay: "both", showCaption: true, iconStyle: "color" }],
+    ["Только часы", { hiddenWidgets: ["weather", "bookmarks", "date", "search"], clockDisplay: "digital", showCaption: false, iconStyle: "mono" }]
+  ];
+  for (const [label, patch] of choices) {
+    const button = el("button", "drawer-button", label);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      Object.assign(settings, structuredClone(patch));
+      refreshSettingsView();
+      saveSettings();
+      renderDrawer();
+      showToast("Пресет «" + label + "» применён");
+    });
+    presetButtons.append(button);
+  }
+  presets.append(presetButtons);
+  const widgets = makeSection("ВИДЖЕТЫ НА ВКЛАДКЕ");
+  for (const [key, label] of [["weather", "Погода"], ["bookmarks", "Избранное"], ["date", "Дата"], ["clock", "Часы"], ["search", "Поиск"]]) {
+    const toggle = makeToggle(!settings.hiddenWidgets?.includes(key), "Показывать: " + label);
+    toggle.input.addEventListener("change", () => {
+      const hidden = new Set(Array.isArray(settings.hiddenWidgets) ? settings.hiddenWidgets : []);
+      if (toggle.input.checked) hidden.delete(key);
+      else hidden.add(key);
+      settings.hiddenWidgets = [...hidden];
+      if (key === "weather" && !toggle.input.checked) toggleWeatherPanel(false);
+      renderWidgetLayout();
+      saveSettings();
+    });
+    widgets.append(makeRow(label, "", toggle.label));
+  }
+  content.append(widgets);
 
   const visual = makeSection("ФОН И АТМОСФЕРА");
   const brightness = document.createElement("input");
@@ -1205,8 +1383,10 @@ function renderGeneralSettings(content) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { showToast("Поддерживаются JPG, PNG и WebP"); fileInput.value = ""; return; }
     const reader = new FileReader();
     reader.onload = async () => {
-      settings.customWallpaper = String(reader.result);
-      renderAppearance(); await saveSettings({ includeMedia: true }); showToast("Новые обои установлены");
+      try {
+      settings.customWallpaper = await optimizeWallpaper(String(reader.result));
+      renderAppearance(); await saveSettings({ includeMedia: true }); renderDrawer(); showToast("Новые обои установлены");
+      } catch { showToast("Не удалось открыть изображение"); }
     };
     reader.onerror = () => showToast("Не удалось прочитать изображение");
     reader.readAsDataURL(file);
@@ -1217,6 +1397,34 @@ function renderGeneralSettings(content) {
   reset.type = "button"; reset.addEventListener("click", async () => { settings.customWallpaper = ""; renderAppearance(); await saveSettings({ includeMedia: true }); showToast("Исходные обои восстановлены"); });
   const wallpaperButtons = el("div", "button-row"); wallpaperButtons.append(upload, reset, fileInput);
   wallpaperSection.append(el("p", "setting-help", "Изображение хранится только в настройках расширения. Поддерживаются JPG, PNG и WebP."), wallpaperButtons);
+  const preview = el("div", "wallpaper-preview");
+  preview.setAttribute("role", "group");
+  preview.setAttribute("aria-label", "Предпросмотр кадрирования обоев");
+  preview.style.backgroundImage = settings.customWallpaper ? 'url("' + settings.customWallpaper + '")' : 'url("Image.webp")';
+  preview.style.backgroundPosition = settings.position;
+  const point = el("input", "wallpaper-position");
+  point.type = "range"; point.min = "0"; point.max = "100";
+  point.setAttribute("aria-label", "Вертикальная точка фокуса обоев");
+  const match = /^50% (\d+)%$/.exec(settings.position);
+  point.value = match ? match[1] : "50";
+  const setPosition = (value) => {
+    point.value = String(value);
+    settings.position = "50% " + value + "%";
+    preview.style.backgroundPosition = settings.position;
+    renderAppearance();
+    scheduleSaveSettings();
+  };
+  point.addEventListener("input", () => setPosition(Number(point.value)));
+  preview.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    preview.setPointerCapture(event.pointerId);
+    const move = (e) => { const rect = preview.getBoundingClientRect(); setPosition(Math.round(Math.max(0, Math.min(100, (e.clientY - rect.top) / rect.height * 100)))); };
+    move(event);
+    preview.onpointermove = move;
+    preview.onpointerup = preview.onpointercancel = () => { preview.onpointermove = null; };
+  });
+  wallpaperSection.append(preview, makeRow("Кадрирование", "Перетаскивай точку фокуса на превью или используй ползунок.", point));
   content.append(wallpaperSection);
 
   const motionSection = makeSection("ДВИЖЕНИЕ ФОНА");
@@ -1374,8 +1582,28 @@ function renderGeneralSettings(content) {
   content.append(backup);
 
   const privacy = makeSection("ПРИВАТНОСТЬ");
-  privacy.append(el("p", "setting-help", "Настройки и собственные обои остаются в хранилище Chrome. Для погоды yunagi запрашивает прогноз Open-Meteo по выбранному городу — геолокация не используется."));
+  privacy.append(el("p", "setting-help", "Настройки и собственные обои остаются в хранилище Chrome. Open-Meteo определяет координаты выбранного города, MET Norway отдаёт прогноз. Google получает домены сайтов для фавиконов (можно отключить), GitHub — запросы проверки обновлений. Геолокация и аналитика не используются."));
   content.append(privacy);
+  const groups = [["Виджеты и поведение", [presets, widgets, behavior]], ["Внешний вид", [visual, wallpaperSection, motionSection, seasonal]], ["Данные и приватность", [backup, privacy]]];
+  const tabs = el("div", "settings-tabs");
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", "Категории общих настроек");
+  const panels = groups.map(([label, sections]) => {
+    const panel = el("div", "settings-category");
+    panel.append(...sections);
+    const button = el("button", "drawer-button", label);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      panels.forEach(({ panel: other, button: control }) => {
+        other.hidden = other !== panel;
+        control.setAttribute("aria-pressed", String(other === panel));
+      });
+    });
+    tabs.append(button);
+    return { panel, button };
+  });
+  content.append(tabs);
+  panels.forEach(({ panel, button }, index) => { panel.hidden = index !== 0; button.setAttribute("aria-pressed", String(index === 0)); content.append(panel); });
 }
 
 async function exportSettingsBackup() {
@@ -1449,7 +1677,7 @@ function normalizeImportedSettings(source) {
     brightness: clamp(input.brightness, 35, 120, DEFAULTS.brightness),
     shade: clamp(input.shade, 0, 60, DEFAULTS.shade),
     scale: clamp(input.scale, 85, 130, DEFAULTS.scale),
-    position: positionOptions.includes(input.position) ? input.position : DEFAULTS.position,
+    position: positionOptions.includes(input.position) || /^50% (100|[1-9]?\d)%$/.test(input.position) ? input.position : DEFAULTS.position,
     accent: accents.includes(input.accent) ? input.accent : DEFAULTS.accent,
     themeMode: themes.includes(input.themeMode) ? input.themeMode : "manual",
     idleClockDelay: [0, 30, 60, 120, 300, 600].includes(Number(input.idleClockDelay)) ? Number(input.idleClockDelay) : DEFAULTS.idleClockDelay,
@@ -1458,6 +1686,7 @@ function normalizeImportedSettings(source) {
     hasCustomVideo: Boolean(video),
     videoEnabled: Boolean(input.videoEnabled && video),
     parallaxEnabled: Boolean(input.parallaxEnabled),
+    hiddenWidgets: Array.isArray(input.hiddenWidgets) ? [...new Set(input.hiddenWidgets.filter((key) => Object.hasOwn(WIDGET_LAYOUT_DEFAULTS, key)))] : [],
     faviconEnabled: input.faviconEnabled !== false,
     iconStyle: ["color", "mono", "tint"].includes(input.iconStyle) ? input.iconStyle : DEFAULTS.iconStyle,
     widgetSizes: {
@@ -1513,7 +1742,7 @@ function renderWeatherSettings(content) {
   const units = makeSelect([["celsius", "Цельсий · °C"], ["fahrenheit", "Фаренгейт · °F"]], settings.units);
   units.addEventListener("change", async () => { settings.units = units.value; await saveSettings(); updateWeather(); });
   section.append(makeRow("Единицы", "Температура в виджете.", units));
-  const refresh = el("button", "drawer-button", "↻  Обновить погоду"); refresh.type = "button"; refresh.addEventListener("click", updateWeather);
+  const refresh = el("button", "drawer-button", "↻  Обновить погоду"); refresh.type = "button"; refresh.addEventListener("click", () => updateWeather(true));
   const actions = el("div", "button-row"); actions.append(refresh); section.append(actions);
   content.append(section);
   renderWidgetSizeSetting(content, "weather", "Размер виджета погоды");
@@ -1673,9 +1902,8 @@ function updateEngineButton() {
 // ---------- Проверка обновлений ----------
 // Наведение на метку GitHub внизу слева показывает, отстала ли установленная
 // версия от репозитория: сравниваем manifest.version локально и на GitHub.
-// Ветки гоняем обе (релизы живут в main, разработка — в dev), результат
-// кэшируем, чтобы новая вкладка не дёргала сеть каждый раз.
-const UPDATE_BRANCHES = ["main", "dev"];
+// Проверяем только стабильную ветку main; результат кэшируем.
+const UPDATE_BRANCHES = ["main"];
 const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const UPDATE_CHECK_KEY = "yunagi-update-check";
 let updateState = { state: "unknown", local: "", remote: "" };
@@ -2070,8 +2298,8 @@ function setupEvents() {
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $("#drawerScrim").addEventListener("click", closeDrawer);
   $$(".widget[data-widget]").forEach((widget) => {
-    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); if (widget.dataset.widget === "weather") toggleWeatherPanel(false); openDrawer(widget.dataset.widget); });
-    widget.addEventListener("keydown", (event) => { if (event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });
+    widget.addEventListener("dblclick", (event) => { if (document.body.classList.contains("layout-editing")) return; clearTimeout(pendingNavigation); event.preventDefault(); if (event.target.closest(".bookmark-item")) return; if (widget.dataset.widget === "weather") toggleWeatherPanel(false); openDrawer(widget.dataset.widget); });
+    widget.addEventListener("keydown", (event) => { if (event.target === widget && event.key === "Enter" && !document.body.classList.contains("layout-editing")) openDrawer(widget.dataset.widget); });
   });
   // Клик по погоде раскрывает прогноз на ближайшие часы. Двойной клик всё равно
   // откроет настройки (см. выше), поэтому панель просто закрывается перед этим.
@@ -2084,18 +2312,13 @@ function setupEvents() {
     if (weatherPanelOpen && !event.target.closest("#weatherPanel") && !event.target.closest(".weather-card")) toggleWeatherPanel(false);
   });
   $("#bookmarkGrid").addEventListener("click", (event) => {
-    if (document.body.classList.contains("layout-editing")) return;
-    const button = event.target.closest("[data-bookmark-index]");
-    if (!button) return;
-    clearTimeout(pendingNavigation);
-    const bookmark = settings.bookmarks[Number(button.dataset.bookmarkIndex)];
-    if (!bookmark?.url) { openDrawer("bookmarks"); return; }
-    pendingNavigation = setTimeout(() => {
-      let url = bookmark.url.trim();
-      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-      try { if (/^https?:$/.test(new URL(url).protocol)) location.href = url; }
-      catch { showToast("Проверь адрес закладки в настройках"); }
-    }, 240);
+    const link = event.target.closest("[data-bookmark-index]");
+    if (!link) return;
+    if (document.body.classList.contains("layout-editing")) { event.preventDefault(); return; }
+    if (!link.getAttribute("href")) { event.preventDefault(); openDrawer("bookmarks"); }
+  });
+  $("#bookmarkGrid").addEventListener("auxclick", (event) => {
+    if (document.body.classList.contains("layout-editing")) event.preventDefault();
   });
   // Клик по подписи под поиском сразу меняет фразу.
   const caption = $("#searchCaption");
@@ -2144,6 +2367,12 @@ function setupEvents() {
   });
   document.addEventListener("keydown", (event) => {
     resetIdleTimer(true);
+    if (event.key === "Tab" && document.body.classList.contains("drawer-open")) {
+      const controls = [...$("#settingsDrawer").querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')].filter((item) => !item.disabled && item.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
     if (event.key === "Escape") {
       const hadDrawer = document.body.classList.contains("drawer-open");
       toggleWeatherPanel(false);
@@ -2152,6 +2381,7 @@ function setupEvents() {
       else if (!hadDrawer && document.body.classList.contains("focus-mode")) toggleFocusMode(false);
     }
     if (event.key === "/" && !event.ctrlKey && !event.metaKey && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+      if (settings.hiddenWidgets?.includes("search")) return;
       event.preventDefault(); $("#searchInput").focus();
     }
     if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openDrawer("general"); }
@@ -2179,6 +2409,7 @@ async function init() {
   $("#focusNote").value = settings.focusNote || "";
   renderFocusTasks();
   setupEvents();
+  setupSettingsSync();
   initializeSnowEffect();
   updateTheme();
   resetIdleTimer(true);

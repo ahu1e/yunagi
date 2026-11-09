@@ -418,12 +418,13 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
 .bookmark-item.is-dragging { opacity: .3; }
 .bookmark-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: 11px;
-  background: linear-gradient(145deg, var(--bookmark-color, #55666e), rgba(20, 22, 26, .82));
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .18), transparent 55%), linear-gradient(155deg, color-mix(in srgb, var(--bookmark-color, #55666e) 65%, #252933), #1b1e26);
+  isolation: isolate;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .16);
   font-size: 14px;
   font-weight: 700;
@@ -457,13 +458,11 @@ body[data-layout-mode="stack"] #leftStack > [data-layout-item] {
 /* Фавикон сайта: сама иконка меньше плитки, под ней остаётся цветной фон из
    настроек закладки — так ряды выглядят аккуратно даже с разными формами логотипов. */
 .bookmark-favicon {
-  width: 21px;
-  height: 21px;
+  width: 24px;
+  height: 24px;
   border-radius: 5px;
-  background: rgba(255, 255, 255, .92);
   object-fit: contain;
-  padding: 2px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .22));
 }
 /* --- Стиль значков: монохром и «тонированные» (переключается в настройках) ---
    Монохром: filter на плитке красит разом всё содержимое — градиент фона,
@@ -772,7 +771,8 @@ body.hide-caption .search-caption { opacity: 0; visibility: hidden; pointer-even
 .settings-trigger { right: var(--gutter-x); }
 .focus-trigger { right: calc(var(--gutter-x) + 54px); }
 .layout-trigger { right: calc(var(--gutter-x) + 108px); font-size: 19px; }
-.settings-trigger svg, .focus-trigger svg {
+.settings-trigger svg, .focus-trigger svg, .layout-trigger svg {
+  stroke-width: 1.65;
   width: 19px;
   height: 19px;
   fill: none;
@@ -1538,3 +1538,14 @@ body.layout-editing .focus-trigger { opacity: 0; pointer-events: none; }
   }
   .wallpaper, .wallpaper-video { transform: scale(var(--wallpaper-scale, 1)); }
 }
+
+/* Visibility wins over layout, focus and responsive display rules. */
+[data-layout-item][hidden] { display: none !important; }
+
+.bookmark-item { text-decoration: none; }
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.settings-tabs [aria-pressed="true"] { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); }
+.settings-category[hidden] { display: none; }
+.weather-icon svg, #idleWeatherIcon svg, .weather-panel-hour-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+
+.wallpaper-preview { height: 150px; margin: 16px 0; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; background-size: cover; cursor: crosshair; touch-action: none; }
