@@ -1554,7 +1554,7 @@ body.layout-editing .bookmark-item { cursor: default; }
 .clock-card { padding: 18px; gap: 16px; }
 .analog-clock { width: 42px; height: 42px; flex-basis: 42px; border-color: rgba(255,255,255,.17); background: rgba(255,255,255,.025); box-shadow: none; }
 .digital-time { font-weight: 450; letter-spacing: -.045em; }
-.clock-card[data-display="digital"] .digital-time { font-weight: 350; }
+.clock-card[data-display="digital"] .digital-time { font-weight: 550; }
 .search-box { border-radius: 22px; }
 .search-box input { font-size: 14px; }
 .engine-button { border-radius: 50%; border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-weight: 500; }
@@ -1679,3 +1679,5 @@ body.layout-editing .bookmark-item { cursor: default; }
 body.focus-mode [data-layout-item] { opacity: 0; pointer-events: none; }
 .focus-task-text { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .focus-panel { padding: 20px; } .focus-panel h1 { font-size: 23px; } }
+
+.snow-drift-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; }

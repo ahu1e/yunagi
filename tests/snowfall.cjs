@@ -1,0 +1,22 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+let seed=917;const math=Object.create(Math);math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
+const ctx={scale(){},beginPath(){},ellipse(){},fill(){},fillRect(){},createRadialGradient:()=>({addColorStop(){}}),clearRect(){},save(){},restore(){},translate(){},rotate(){},drawImage(){}};
+const context={assert,console,structuredClone,Math:math,setTimeout:()=>0,clearTimeout(){},window:{innerWidth:3840,innerHeight:2160,matchMedia:()=>({matches:false})},document:{createElement:()=>({getContext:()=>ctx})},ctx};vm.createContext(context);
+const source=fs.readFileSync('newtab.js','utf8').replace(/init\(\);\s*$/,'');
+vm.runInContext(source+`
+snowContext=ctx;settings=structuredClone(DEFAULTS);createSnowflakes();
+assert.equal(snowflakes.length,190);
+assert.ok(snowSpriteCache.size<=64,'sprite cache has a fixed upper bound');
+assert.ok(snowflakes.every((f,i)=>!i||f.depth>=snowflakes[i-1].depth),'distant flakes are drawn first');
+const far=snowflakes.filter(f=>f.depth<.42), near=snowflakes.filter(f=>f.depth>.8);
+assert.ok(far.length>100&&near.length>0);
+assert.ok(Math.max(...far.map(f=>f.size))<Math.min(...near.map(f=>f.size)));
+assert.ok(Math.max(...far.map(f=>f.speed))<Math.min(...near.map(f=>f.speed)));
+const initial=snowflakes.map(f=>[f.x,f.y,f.phase,f.rotation]);drawSnowflakes(0,true);
+assert.deepEqual(snowflakes.map(f=>[f.x,f.y,f.phase,f.rotation]),initial,'reduced-motion drawing stays stationary');
+for(let frame=0;frame<720;frame++)drawSnowflakes(1);
+assert.ok(snowflakes.every(f=>[f.x,f.y,f.phase,f.rotation].every(Number.isFinite)),'motion remains finite');
+assert.ok(snowflakes.every(f=>f.x>=-f.spriteSide&&f.x<=window.innerWidth+f.spriteSide),'wind wraps in both directions');
+assert.ok(ctx.globalAlpha>=0&&ctx.globalAlpha<=1);
+console.log('PASS: snowfall depth, cached textures, size/speed separation, stationary mode and stable wind');
+`,context);

@@ -5,7 +5,7 @@
   "description": "Local-first Chrome new tab extension",
   "scripts": {
     "check": "node scripts/check.cjs",
-    "test": "node tests/settings-weather.cjs && node tests/layout-editor.cjs && node tests/bookmark-actions.cjs",
+    "test": "node tests/settings-weather.cjs && node tests/layout-editor.cjs && node tests/bookmark-actions.cjs && node tests/snow-drifts.cjs && node tests/snowfall.cjs",
     "test:browser": "node tests/browser.cjs",
     "release": "node scripts/package.cjs"
   },

@@ -5,7 +5,7 @@ const checked=spawnSync(process.execPath,['scripts/check.cjs'],{stdio:'inherit'}
 if(checked.status!==0)process.exit(checked.status||1);
 const manifest=JSON.parse(fs.readFileSync('manifest.json','utf8'));
 const assets=fs.readdirSync('assets').filter(file=>fs.statSync(path.join('assets',file)).isFile()).map(file=>'assets/'+file);
-const files=['manifest.json','newtab.html','newtab.js','styles.css','Image.webp',...assets].sort();
+const files=['manifest.json','newtab.html','newtab.js','snow-drifts.js','styles.css','Image.webp',...assets].sort();
 const crcTable=Array.from({length:256},(_,n)=>{for(let i=0;i<8;i++)n=n&1?0xedb88320^(n>>>1):n>>>1;return n>>>0});
 const crc32=buffer=>{let crc=0xffffffff;for(const byte of buffer)crc=crcTable[(crc^byte)&255]^(crc>>>8);return (crc^0xffffffff)>>>0};
 const local=[],central=[];let offset=0;

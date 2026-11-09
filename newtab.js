@@ -44,6 +44,7 @@ const DEFAULTS = {
   clockDisplay: "both",
   showCaption: true,
   snowEnabled: false,
+  snowAccumulation: true,
   snowIntensity: "normal",
   snowSchedule: false,
   themeMode: "manual",
@@ -492,7 +493,32 @@ function renderWidgetLayout() {
   $("#toggleLayoutEdit")?.classList.toggle("is-active", document.body.classList.contains("layout-editing"));
 }
 
+// Free mode uses a fixed search width; transfer its actual geometry to the grid.
+function preserveSearchGeometry() {
+  if (settings.layoutMode !== "free") return;
+  const search = $('[data-layout-item="search"]');
+  const canvas = $(".canvas");
+  if (!search || search.hidden || !canvas) return;
+  // Layout dimensions exclude the temporary scale/translate of the entrance animation.
+  const rect = { left: search.offsetLeft, top: search.offsetTop, width: search.offsetWidth };
+  const style = getComputedStyle(canvas);
+  const left = parseFloat(style.paddingLeft) || 0;
+  const right = parseFloat(style.paddingRight) || 0;
+  const top = parseFloat(style.paddingTop) || 0;
+  const bottom = parseFloat(style.paddingBottom) || 0;
+  const width = canvas.clientWidth - left - right;
+  const height = canvas.clientHeight - top - bottom;
+  if (width <= 0 || height <= 0 || rect.width <= 0) return;
+  settings.widgetLayout.search = {
+    ...settings.widgetLayout.search,
+    x: 1 + (rect.left - left) / width * 24,
+    y: 1 + (rect.top - top) / height * 12,
+    w: rect.width / width * 24
+  };
+}
+
 function setLayoutMode(mode) {
+  if (mode === "custom") preserveSearchGeometry();
   settings.layoutMode = mode;
   if (mode === "stack") {
     settings.widgetLayout.weather = { ...settings.widgetLayout.weather, x: 2, y: 3, h: 0 };
@@ -544,6 +570,7 @@ function toggleLayoutEditor(enabled = !document.body.classList.contains("layout-
     layoutHistory = [];
     $("#undoLayoutEdit").disabled = true;
     layoutEditorSnapshot = { layoutMode: settings.layoutMode, widgetLayout: structuredClone(settings.widgetLayout) };
+    preserveSearchGeometry();
     toggleWeatherPanel(false);
     hideIdleClock();
     clearTimeout(idleTimer);
@@ -1708,6 +1735,13 @@ function renderGeneralSettings(content) {
   snowTrack.setAttribute("aria-hidden", "true");
   snowLabel.append(snowToggle, snowTrack);
   seasonal.append(makeRow("Снегопад", "Нежные снежинки поверх обоев.", snowLabel));
+  const accumulation = makeToggle(settings.snowAccumulation !== false, "Снег на виджетах");
+  accumulation.input.addEventListener("change", () => {
+    settings.snowAccumulation = accumulation.input.checked;
+    if (!settings.snowAccumulation) snowDrifts?.clear();
+    saveSettings();
+  });
+  seasonal.append(makeRow("Снег на виджетах", "Снег собирается на виджетах. В центре мышь перемешивает его, у боковых краёв — сбрасывает вниз. Работает при включённом снегопаде.", accumulation.label));
 
   const intensity = makeSelect([["soft", "Редкий"], ["normal", "Обычный"], ["dense", "Плотный"]], settings.snowIntensity);
   intensity.disabled = !isSnowEffectActive();
@@ -1881,6 +1915,7 @@ function normalizeImportedSettings(source) {
       clock: clamp(sizes.clock, 75, 140, 100)
     },
     snowEnabled: Boolean(input.snowEnabled),
+    snowAccumulation: input.snowAccumulation !== false,
     snowSchedule: Boolean(input.snowSchedule),
     snowIntensity: ["soft", "normal", "dense"].includes(input.snowIntensity) ? input.snowIntensity : "normal",
     focusNote: String(input.focusNote || "").slice(0, 240),
@@ -2319,134 +2354,81 @@ function snowSpriteSize(size) {
 
 function createSnowflakeSprite(size, crystalline, variant) {
   const spriteSize = snowSpriteSize(size);
-  const cacheKey = `${crystalline ? "crystal" : "soft"}-${spriteSize}-${variant}`;
-  const cached = snowSpriteCache.get(cacheKey);
-  if (cached) return cached;
-
-  const padding = 3;
-  const side = spriteSize + padding * 2;
-  const ratio = 2;
-  const sprite = document.createElement("canvas");
-  sprite.width = Math.ceil(side * ratio);
-  sprite.height = Math.ceil(side * ratio);
+  const cacheKey = 'powder-' + (crystalline ? 'crisp-' : 'soft-') + spriteSize + '-' + variant;
+  if (snowSpriteCache.has(cacheKey)) return snowSpriteCache.get(cacheKey);
+  const side = spriteSize + 6;
+  const sprite = document.createElement("canvas"); sprite.width = sprite.height = side * 2;
   const context = sprite.getContext("2d");
   if (!context) return sprite;
-  context.scale(ratio, ratio);
-
-  const center = side / 2;
-  const radius = spriteSize * 0.43;
-  const glow = context.createRadialGradient(center, center, 0, center, center, spriteSize * 0.72);
-  glow.addColorStop(0, "rgba(255,255,255,.32)");
-  glow.addColorStop(.3, "rgba(226,240,255,.13)");
-  glow.addColorStop(1, "rgba(226,240,255,0)");
-  context.fillStyle = glow;
-  context.fillRect(0, 0, side, side);
-
-  if (crystalline) {
-    context.save();
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.strokeStyle = "rgba(244, 250, 255, .78)";
-    context.lineWidth = Math.max(.32, spriteSize * .045);
-    context.shadowColor = "rgba(216, 236, 255, .9)";
-    context.shadowBlur = spriteSize * .15;
-
-    for (let arm = 0; arm < 6; arm++) {
-      const angle = arm * Math.PI / 3;
-      const ux = Math.cos(angle);
-      const uy = Math.sin(angle);
-      const tip = radius * (.88 + Math.random() * .12);
-      context.beginPath();
-      context.moveTo(center - ux * radius * .13, center - uy * radius * .13);
-      context.lineTo(center + ux * tip, center + uy * tip);
-      context.stroke();
-
-      for (const position of [.38, .59, .77]) {
-        const branchLength = radius * (.27 - position * .1) * (.78 + Math.random() * .4);
-        const branchX = center + ux * radius * position;
-        const branchY = center + uy * radius * position;
-        for (const sideSign of [-1, 1]) {
-          const branchAngle = angle + sideSign * (.76 + Math.random() * .16);
-          const endX = branchX + Math.cos(branchAngle) * branchLength;
-          const endY = branchY + Math.sin(branchAngle) * branchLength;
-          context.beginPath();
-          context.moveTo(branchX, branchY);
-          context.lineTo(endX, endY);
-          context.stroke();
-          context.beginPath();
-          context.moveTo(branchX + (endX - branchX) * .48, branchY + (endY - branchY) * .48);
-          context.lineTo(branchX + Math.cos(branchAngle + sideSign * .85) * branchLength * .47, branchY + Math.sin(branchAngle + sideSign * .85) * branchLength * .47);
-          context.stroke();
-        }
-      }
-    }
-
-    const core = context.createRadialGradient(center - radius * .1, center - radius * .1, 0, center, center, radius * .24);
-    core.addColorStop(0, "rgba(255,255,255,.98)");
-    core.addColorStop(1, "rgba(211,232,255,.62)");
-    context.fillStyle = core;
-    context.beginPath();
-    context.arc(center, center, Math.max(.45, radius * .16), 0, Math.PI * 2);
-    context.fill();
-
-    // Fine ice-grain catches light and keeps the crystals from reading as flat glyphs.
-    context.shadowBlur = 0;
-    for (let grain = 0; grain < Math.round(spriteSize * 2.2); grain++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = Math.random() * radius * .9;
-      const grainSize = .12 + Math.random() * .28;
-      context.fillStyle = `rgba(255,255,255,${.18 + Math.random() * .48})`;
-      context.beginPath();
-      context.arc(center + Math.cos(angle) * distance, center + Math.sin(angle) * distance, grainSize, 0, Math.PI * 2);
-      context.fill();
-    }
-    context.restore();
-  } else {
-    // Near flakes catch the light as soft, imperfect clusters rather than sharp stars.
-    for (let grain = 0; grain < 9; grain++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = Math.pow(Math.random(), 1.7) * radius * .55;
-      const grainSize = .25 + Math.random() * Math.max(.45, spriteSize * .095);
-      const x = center + Math.cos(angle) * distance;
-      const y = center + Math.sin(angle) * distance;
-      const particle = context.createRadialGradient(x, y, 0, x, y, grainSize * 2.8);
-      particle.addColorStop(0, "rgba(255,255,255,.8)");
-      particle.addColorStop(.45, "rgba(237,246,255,.34)");
-      particle.addColorStop(1, "rgba(237,246,255,0)");
-      context.fillStyle = particle;
-      context.fillRect(x - grainSize * 3, y - grainSize * 3, grainSize * 6, grainSize * 6);
-    }
+  context.scale(2, 2);
+  const center = side / 2, radius = spriteSize * .4;
+  // Irregular overlapping powder lobes rather than large star-shaped crystals.
+  const lobes = 5 + variant % 4;
+  for (let i = 0; i < lobes; i++) {
+    const angle = i * 2.39996 + variant * .73;
+    const offset = radius * (.12 + .45 * ((i * 7 + variant * 3) % 11) / 10);
+    const x = center + Math.cos(angle) * offset, y = center + Math.sin(angle) * offset;
+    const grain = radius * (.4 + .22 * ((i + variant) % 3));
+    const fade = context.createRadialGradient(x, y, 0, x, y, grain);
+    fade.addColorStop(0, crystalline ? "rgba(253,255,255,.88)" : "rgba(250,253,255,.66)");
+    fade.addColorStop(.42, "rgba(240,248,255,.46)");
+    fade.addColorStop(1, "rgba(230,242,255,0)");
+    context.fillStyle = fade; context.fillRect(x-grain, y-grain, grain*2, grain*2);
   }
-
+  if (crystalline) {
+    context.fillStyle = "rgba(255,255,255,.7)";
+    context.beginPath(); context.ellipse(center, center, Math.max(.35,radius*.23), Math.max(.3,radius*.15), variant*.5, 0, Math.PI*2); context.fill();
+  }
   snowSpriteCache.set(cacheKey, sprite);
   return sprite;
 }
 
+let snowDrifts = null;
+let snowSurfaceTime = 0;
+function syncSnowSurfaces(force = false) {
+  if (!snowDrifts) return;
+  const suspended = !settings.snowAccumulation || reducedMotion.matches || document.body.classList.contains("layout-editing") || document.body.classList.contains("drawer-open") || document.body.classList.contains("idle-mode") || weatherPanelOpen;
+  if (suspended) { snowDrifts.clear(); return; }
+  const now = performance.now();
+  if (!force && now - snowSurfaceTime < 200) return;
+  snowSurfaceTime = now;
+  const focus = document.body.classList.contains("focus-mode");
+  const selectors = focus ? ["#focusPanel"] : ['[data-layout-item="weather"]', '[data-layout-item="bookmarks"]', '[data-layout-item="date"]', '[data-layout-item="clock"]', '.search-area .search-box'];
+  const surfaces = [];
+  for (const selector of selectors) {
+    const item = $(selector);
+    if (!item || item.closest("[hidden]") || !item.getClientRects().length) continue;
+    const rect = item.getBoundingClientRect();
+    surfaces.push({ key: selector, x: rect.left, y: rect.top, width: rect.width });
+  }
+  snowDrifts.sync(surfaces);
+}
+
+let snowWindTime = 0;
 function createSnowflakes() {
   if (!snowContext) return;
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const density = { soft: 0.55, normal: 0.9, dense: 1.3 }[settings.snowIntensity] || 0.9;
-  const count = Math.min(150, Math.max(22, Math.round((width * height / 13000) * density)));
+  const width = window.innerWidth, height = window.innerHeight;
+  const density = { soft: .55, normal: .9, dense: 1.3 }[settings.snowIntensity] || .9;
+  const count = Math.min(190, Math.max(28, Math.round(width * height / 10500 * density)));
   snowflakes = Array.from({ length: count }, () => {
-    const size = 1.5 + Math.pow(Math.random(), 1.8) * 11.5;
-    const crystalline = size > 5 && Math.random() < .7;
-    const variant = Math.floor(Math.random() * 6);
+    const layer = Math.random();
+    const depth = layer < .68 ? .12 + Math.random() * .28 : layer < .93 ? .42 + Math.random() * .3 : .8 + Math.random() * .2;
+    const size = depth < .42 ? 1.1 + Math.random() * 1.7 : depth < .8 ? 2.5 + Math.random() * 2.8 : 6 + Math.random() * 4;
+    const crystalline = depth > .42 && depth < .8 && Math.random() < .22;
     const spriteSize = snowSpriteSize(size);
     return {
-      x: Math.random() * width,
-      y: Math.random() * height,
-      size,
-      sprite: createSnowflakeSprite(size, crystalline, variant),
+      x: Math.random() * width, y: Math.random() * height, depth, size,
+      sprite: createSnowflakeSprite(size, crystalline, Math.floor(Math.random() * 8)),
       spriteSide: (spriteSize + 6) * (size / spriteSize),
-      speed: .16 + size / 12 * .5 + Math.random() * .25,
-      drift: .08 + Math.random() * .36 + size / 40,
+      speed: .14 + depth * depth * 1.45 + Math.random() * .15,
+      drift: .12 + depth * .5,
       phase: Math.random() * Math.PI * 2,
+      phaseRate: .004 + Math.random() * .007 + depth * .004,
       rotation: Math.random() * Math.PI * 2,
-      rotationSpeed: (Math.random() - .5) * .012,
-      alpha: .24 + Math.random() * .5
+      rotationSpeed: (Math.random() - .5) * (.002 + depth * .007),
+      alpha: depth < .42 ? .22 + Math.random() * .25 : depth < .8 ? .48 + Math.random() * .23 : .26 + Math.random() * .16
     };
-  });
+  }).sort((a,b) => a.depth-b.depth);
 }
 
 function resizeSnowCanvas() {
@@ -2457,6 +2439,8 @@ function resizeSnowCanvas() {
   canvas.height = Math.round(window.innerHeight * ratio);
   snowContext.setTransform(ratio, 0, 0, ratio, 0, 0);
   createSnowflakes();
+  snowDrifts?.resize(window.innerWidth, window.innerHeight, ratio);
+  syncSnowSurfaces(true);
   if (isSnowEffectActive() && reducedMotion.matches) drawSnowflakes(0, true);
 }
 
@@ -2465,28 +2449,36 @@ function drawSnowflakes(delta, stationary = false) {
   const width = window.innerWidth;
   const height = window.innerHeight;
   snowContext.clearRect(0, 0, width, height);
+  syncSnowSurfaces();
+  if (!stationary) snowWindTime += delta * .01667;
+  const wind = .12 + Math.sin(snowWindTime * .17) * .22 + Math.sin(snowWindTime * .47 + 1.2) * .1;
   for (const flake of snowflakes) {
     if (!stationary) {
-      flake.phase += 0.009 * delta;
-      flake.y += flake.speed * delta;
-      flake.x += (Math.sin(flake.phase) * flake.drift + 0.035) * delta;
+      const previousY = flake.y;
+      flake.phase += flake.phaseRate * delta;
+      flake.y += flake.speed * (1 + Math.sin(flake.phase * .8) * .12) * delta;
+      flake.x += (Math.sin(flake.phase) * flake.drift + wind * (.25 + flake.depth * 1.3)) * delta;
       flake.rotation += flake.rotationSpeed * delta;
+      if (snowDrifts?.deposit(flake.x, previousY, flake.y, flake.size)) { flake.y = -flake.size; flake.x = Math.random() * width; }
       if (flake.y > height + flake.size) { flake.y = -flake.size; flake.x = Math.random() * width; }
-      if (flake.x > width + flake.size) flake.x = -flake.size;
+      if (flake.x > width + flake.spriteSide) flake.x = -flake.spriteSide;
+      if (flake.x < -flake.spriteSide) flake.x = width + flake.spriteSide;
     }
 
     snowContext.save();
     snowContext.translate(flake.x, flake.y);
     snowContext.rotate(flake.rotation);
-    snowContext.globalAlpha = flake.alpha;
+    const edgeFade = stationary ? 1 : Math.max(0, Math.min(1, (flake.y + flake.size) / 28, (height + flake.size - flake.y) / 36));
+    snowContext.globalAlpha = flake.alpha * edgeFade;
     snowContext.drawImage(flake.sprite, -flake.spriteSide / 2, -flake.spriteSide / 2, flake.spriteSide, flake.spriteSide);
     snowContext.restore();
   }
+  snowDrifts?.draw(stationary ? 0 : delta);
 }
 
 function animateSnow(timestamp) {
   if (!isSnowEffectActive() || reducedMotion.matches || document.hidden) { snowFrame = 0; snowLastFrame = 0; return; }
-  if (snowLastFrame && timestamp - snowLastFrame < 1000 / 30) {
+  if (snowLastFrame && timestamp - snowLastFrame < 1000 / 60 - 1) {
     snowFrame = requestAnimationFrame(animateSnow);
     return;
   }
@@ -2504,6 +2496,7 @@ function setSnowEffect(enabled) {
   snowLastFrame = 0;
   if (!enabled) {
     canvas.classList.remove("is-active");
+    snowDrifts?.clear();
     snowContext?.clearRect(0, 0, window.innerWidth, window.innerHeight);
     return;
   }
@@ -2517,6 +2510,11 @@ function setSnowEffect(enabled) {
 function initializeSnowEffect() {
   const canvas = $("#snowCanvas");
   snowContext = canvas?.getContext("2d", { alpha: true });
+  snowDrifts = new SnowDrifts($("#snowDriftCanvas"));
+  document.addEventListener("pointermove", event => {
+    if (isSnowEffectActive() && settings.snowAccumulation && !reducedMotion.matches && !document.hidden) snowDrifts.brush(event.clientX, event.clientY);
+  }, { passive: true });
+  document.addEventListener("pointerleave", () => snowDrifts.forgetPointer());
   if (!snowContext) return;
   window.addEventListener("resize", () => {
     if (!isSnowEffectActive() || snowResizeFrame) return;
