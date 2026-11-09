@@ -1533,7 +1533,7 @@ body.layout-editing .bookmark-item { cursor: default; }
   --material-edge: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.04) 60%, rgba(255,255,255,.2));
 }
 .glass { border-color: rgba(255,255,255,.07); box-shadow: 0 10px 30px -12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04); }
-.glass::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: var(--material-edge); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; pointer-events: none; opacity: .65; transition: opacity .3s; }
+.glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--material-edge); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; pointer-events: none; opacity: .65; transition: opacity .3s; }
 .glass:hover::before, .search-box:focus-within::before { opacity: 1; }
 .weather-card { min-height: 112px; gap: 13px; padding: 19px 18px; }
 .weather-temp { font-size: 32px; font-weight: 450; letter-spacing: -.055em; }
@@ -1672,3 +1672,10 @@ body.layout-editing .bookmark-item { cursor: default; }
 @media (max-width: 700px) { .layout-edit-bar { width: calc(100vw - 24px); grid-template-columns: 1fr; gap: 12px; } .editor-actions { flex-wrap: wrap; } .editor-key-hint { display: none; } }
 @media (max-width: 480px) { .setting-row { align-items: flex-start; gap: 12px; } .setting-control { max-width: 100%; } .setting-control select { max-width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .weather-dialog-button.is-refreshing svg { animation: none; } }
+.toast.visible { pointer-events: auto; }
+
+.focus-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+#focusNote { max-height: min(220px, 30dvh); }
+body.focus-mode [data-layout-item] { opacity: 0; pointer-events: none; }
+.focus-task-text { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .focus-panel { padding: 20px; } .focus-panel h1 { font-size: 23px; } }

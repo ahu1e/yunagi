@@ -1,18 +1,28 @@
 {
   "manifest_version": 3,
   "name": "yunagi — тихая новая вкладка",
-  "version": "2.0",
+  "version": "2.0.1",
   "description": "yunagi — тихая, настраиваемая новая вкладка с обоями, погодой и закладками.",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
   "host_permissions": [
     "https://geocoding-api.open-meteo.com/*",
     "https://api.met.no/*",
     "https://raw.githubusercontent.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.google.com/s2/favicons; media-src 'self' data: blob:"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.google.com/s2/favicons https://*.gstatic.com; media-src 'self' data: blob:; connect-src 'self' data: blob: https://geocoding-api.open-meteo.com https://api.met.no https://raw.githubusercontent.com"
   },
   "chrome_url_overrides": {
     "newtab": "newtab.html"
+  },
+  "minimum_chrome_version": "114",
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
   }
 }

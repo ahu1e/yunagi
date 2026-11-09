@@ -1,0 +1,19 @@
+{
+  "name": "yunagi-newtab",
+  "version": "2.0.1",
+  "private": true,
+  "description": "Local-first Chrome new tab extension",
+  "scripts": {
+    "check": "node scripts/check.cjs",
+    "test": "node tests/settings-weather.cjs && node tests/layout-editor.cjs && node tests/bookmark-actions.cjs",
+    "test:browser": "node tests/browser.cjs",
+    "release": "node scripts/package.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.25.0"
+}

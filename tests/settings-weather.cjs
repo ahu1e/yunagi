@@ -20,6 +20,16 @@ source+=`\n(async()=>{
  localStorage.setItem(WEATHER_CACHE_KEY,JSON.stringify(data));let requests=0;globalThis.fetch=async()=>{requests++;throw Error('offline')};
  await updateWeather();assert.equal(requests,0);assert.equal(document.querySelector('#weatherTemp').textContent,'18°');
  await updateWeather(true);assert.equal(requests,1);assert.equal(document.querySelector('#weatherTemp').textContent,'18°');assert.ok(document.querySelector('.weather-card').title.includes('Последний прогноз'));
+ const zero=normalizeImportedSettings({shade:0,showCaption:false,brightness:Infinity});
+ assert.equal(zero.shade,0);assert.equal(zero.showCaption,false);assert.equal(zero.brightness,DEFAULTS.brightness);
+ const originalSet=chrome.storage.local.set;
+ chrome.storage.local.set=async()=>{throw Error('storage quota')};
+ const reported=[];const logError=console.error;console.error=(...args)=>reported.push(args);
+ settings.shade=12;const failed=await saveSettings();console.error=logError;assert.equal(failed,false);assert.equal(reported.length,1);
+ chrome.storage.local.set=originalSet;assert.equal(await saveSettings(),true);
+ settings.focusNote='Last keystroke';focusNoteSaveTimer=123;pendingSaveTimer=0;
+ flushPendingSave();await saveQueue;assert.equal(writes.at(-1).focusNote,'Last keystroke');
+ assert.equal(focusNoteSaveTimer,0);
  assert.ok(weatherSvg('☀').includes('<svg'));assert.equal(compareVersions('2.0.1','2.0'),1);
 
  const panel=document.querySelector('#weatherPanel');let opened=0,closed=0;

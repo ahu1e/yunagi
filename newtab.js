@@ -144,7 +144,7 @@ const ACCENT_PALETTES = {
   moss: { color: "#d6e4d0", edge: "rgba(214,228,208,.34)" }
 };
 
-let settings = { ...DEFAULTS };
+let settings = structuredClone(DEFAULTS);
 let drawerKind = "general";
 let toastTimer;
 let weatherRequest = 0;
@@ -179,27 +179,24 @@ let saveQueue = Promise.resolve();
 const pendingStorageKeys = new Map();
 
 async function loadSettings() {
+  let readFailed = false;
   try {
+    let stored;
     if (globalThis.chrome?.storage?.local) {
-      const regularKeys = Object.keys(DEFAULTS).filter((key) => key !== "customVideo");
-      const stored = await chrome.storage.local.get(regularKeys);
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}), date: stored.widgetSizes?.date ?? stored.widgetSizes?.clock ?? DEFAULTS.widgetSizes.date }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
-      if (settings.videoEnabled && settings.hasCustomVideo) {
-        const media = await chrome.storage.local.get("customVideo");
-        settings.customVideo = media.customVideo || "";
-        if (!settings.customVideo) settings.videoEnabled = false;
-      }
-    } else {
-      const stored = JSON.parse(localStorage.getItem("yunagi-settings") || localStorage.getItem("yukinagi-settings") || "{}");
-      settings = { ...DEFAULTS, ...stored, widgetSizes: { ...DEFAULTS.widgetSizes, ...(stored.widgetSizes || {}), date: stored.widgetSizes?.date ?? stored.widgetSizes?.clock ?? DEFAULTS.widgetSizes.date }, widgetLayout: { ...DEFAULTS.widgetLayout, ...(stored.widgetLayout || {}) } };
-    }
+      stored = await chrome.storage.local.get(Object.keys(DEFAULTS).filter(key => key !== "customVideo"));
+      if (stored.videoEnabled && stored.hasCustomVideo) Object.assign(stored, await chrome.storage.local.get("customVideo"));
+    } else stored = JSON.parse(localStorage.getItem("yunagi-settings") || localStorage.getItem("yukinagi-settings") || "{}");
+    settings = normalizeImportedSettings(stored);
+    // Disabled video is kept in storage without loading its large data URL.
+    if (!stored.videoEnabled && stored.hasCustomVideo) settings.hasCustomVideo = true;
   } catch (error) {
+    readFailed = true;
     console.warn("yunagi: using default settings", error);
-    settings = { ...DEFAULTS, widgetLayout: { ...DEFAULTS.widgetLayout } };
+    settings = structuredClone(DEFAULTS);
+    showToast("Не удалось прочитать настройки. Исходные данные не изменены.");
   }
-  if (!["color", "mono"].includes(settings.iconStyle)) settings.iconStyle = "color";
   savedSettings = structuredClone(settings);
-  if (migrateWidgetLayout(settings.widgetLayout)) saveSettings();
+  if (!readFailed && migrateWidgetLayout(settings.widgetLayout)) saveSettings();
 }
 
 // Прежний дефолт держал правый столбец в колонке 22 — колонка 24 оставалась пустой,
@@ -223,7 +220,7 @@ function saveSettings(options = {}) {
     if (!options.includeMedia && ["customWallpaper", "customVideo"].includes(key)) continue;
     if (JSON.stringify(value) !== JSON.stringify(savedSettings[key])) patch[key] = structuredClone(value);
   }
-  if (!Object.keys(patch).length) return saveQueue;
+  if (!Object.keys(patch).length) return saveQueue.then(result => result !== false);
   Object.assign(savedSettings, structuredClone(patch));
   for (const key of Object.keys(patch)) pendingStorageKeys.set(key, (pendingStorageKeys.get(key) || 0) + 1);
   const write = async () => {
@@ -307,9 +304,11 @@ function scheduleSaveSettings() {
 }
 
 function flushPendingSave() {
-  if (!pendingSaveTimer) return;
+  if (!pendingSaveTimer && !focusNoteSaveTimer) return;
   clearTimeout(pendingSaveTimer);
+  clearTimeout(focusNoteSaveTimer);
   pendingSaveTimer = 0;
+  focusNoteSaveTimer = 0;
   saveSettings();
 }
 
@@ -1256,9 +1255,19 @@ function resetIdleTimer(force = false) {
   }, Number(settings.idleClockDelay) * 1000);
 }
 
+let focusReturnElement = null;
+
 function toggleFocusMode(force) {
   const enabled = force ?? !document.body.classList.contains("focus-mode");
+  if (enabled) {
+    focusReturnElement = document.activeElement;
+    if (document.body.classList.contains("layout-editing")) toggleLayoutEditor(false);
+    toggleWeatherPanel(false);
+  }
   document.body.classList.toggle("focus-mode", enabled);
+  for (const item of document.querySelectorAll("[data-layout-item], .brand-mark")) item.inert = enabled;
+  if (enabled) $("#focusNote").focus({ preventScroll: true });
+  else if (focusReturnElement?.isConnected) focusReturnElement.focus({ preventScroll: true });
   $("#focusPanel").setAttribute("aria-hidden", String(!enabled));
   $("#toggleFocusMode").setAttribute("aria-label", enabled ? "Выйти из режима фокуса" : "Включить режим фокуса");
   $("#toggleFocusMode").title = enabled ? "Выйти из фокуса · F" : "Режим фокуса · F";
@@ -1547,7 +1556,7 @@ function renderGeneralSettings(content) {
     reader.onload = async () => {
       try {
       settings.customWallpaper = await optimizeWallpaper(String(reader.result));
-      renderAppearance(); await saveSettings({ includeMedia: true }); renderDrawer(); showToast("Новые обои установлены");
+      renderAppearance(); if (await saveSettings({ includeMedia: true })) { renderDrawer(); showToast("Новые обои установлены"); }
       } catch { showToast("Не удалось открыть изображение"); }
     };
     reader.onerror = () => showToast("Не удалось прочитать изображение");
@@ -1769,6 +1778,11 @@ function renderGeneralSettings(content) {
 }
 
 async function exportSettingsBackup() {
+  try { await performExportSettingsBackup(); }
+  catch (error) { console.error("yunagi: export failed", error); showToast("Не удалось создать копию. Попробуй ещё раз."); }
+}
+
+async function performExportSettingsBackup() {
   const backupSettings = { ...settings };
   if (settings.hasCustomVideo && !backupSettings.customVideo && globalThis.chrome?.storage?.local) {
     const media = await chrome.storage.local.get("customVideo");
@@ -1795,7 +1809,10 @@ function normalizeImportedSettings(source) {
   const bookmarks = (Array.isArray(input.bookmarks) ? input.bookmarks : DEFAULTS.bookmarks).slice(0, 24).map((bookmark) => {
     const rawUrl = String(bookmark?.url || "").trim();
     let url = rawUrl;
-    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+    if (url && !/^https?:\/\//i.test(url)) {
+      if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^[^/:]+:\d+(?:\/|$)/.test(url)) url = "";
+      else url = `https://${url}`;
+    }
     try { if (url && !/^https?:$/.test(new URL(url).protocol)) url = ""; }
     catch { url = ""; }
     const possibleIcon = typeof bookmark?.icon === "string" ? bookmark.icon : "";
@@ -1813,7 +1830,10 @@ function normalizeImportedSettings(source) {
     ? input.customWallpaper : "";
   const video = typeof input.customVideo === "string" && /^data:video\/(mp4|webm);base64,/i.test(input.customVideo) && input.customVideo.length <= 22_000_000
     ? input.customVideo : "";
-  const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, Number(value) || fallback));
+  const clamp = (value, min, max, fallback) => {
+    const number = typeof value === "number" || (typeof value === "string" && value.trim()) ? Number(value) : NaN;
+    return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+  };
   const sizes = input.widgetSizes && typeof input.widgetSizes === "object" ? input.widgetSizes : {};
   const positionOptions = ["center", "center 35%", "center 65%", "left center", "right center"];
   const themes = ["manual", "time", "season"];
@@ -1827,6 +1847,7 @@ function normalizeImportedSettings(source) {
     cityLocation: validCityLocation(input.cityLocation),
     units: input.units === "fahrenheit" ? "fahrenheit" : "celsius",
     timeFormat: input.timeFormat === "12" ? "12" : "24",
+    showCaption: input.showCaption !== false,
     clockDisplay: ["analog", "digital", "both"].includes(input.clockDisplay) ? input.clockDisplay : DEFAULTS.clockDisplay,
     layoutMode: ["free", "stack", "custom"].includes(input.layoutMode) ? input.layoutMode : DEFAULTS.layoutMode,
     widgetLayout: Object.fromEntries(Object.entries(WIDGET_LAYOUT_DEFAULTS).map(([key, fallback]) => {
@@ -1876,8 +1897,10 @@ async function importSettingsBackup(input) {
     try {
       const parsed = JSON.parse(String(reader.result));
       if (!["yunagi-backup", "yukinagi-backup"].includes(parsed.format) || !parsed.settings) throw new Error("Это не резервная копия yunagi");
+      if (parsed.version !== 1) throw new Error("Версия резервной копии не поддерживается");
+      const previous = settings;
       settings = normalizeImportedSettings(parsed.settings);
-      await saveSettings({ includeMedia: true });
+      if (!await saveSettings({ includeMedia: true })) { settings = previous; throw new Error("Не удалось сохранить резервную копию. Проверь свободное место и повтори импорт."); }
       renderAppearance();
       renderBookmarks();
       updateEngineButton();
@@ -2194,7 +2217,7 @@ async function readLocalVersion() {
 
 async function fetchRemoteVersion(branch) {
   try {
-    const response = await fetch(`https://raw.githubusercontent.com/ahu1e/yunagi/${branch}/manifest.json`, { cache: "no-cache" });
+    const response = await fetch(`https://raw.githubusercontent.com/ahu1e/yunagi/${branch}/manifest.json`, { cache: "no-cache", signal: AbortSignal.timeout(8000) });
     if (!response.ok) return "";
     return (await response.json()).version || "";
   } catch { /* офлайн — ветка просто пропадёт из сравнения */ }
@@ -2563,11 +2586,12 @@ function setupEvents() {
     resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; renderWidgetLayout(); });
   }, { passive: true });
   $("#toggleFocusMode").addEventListener("click", () => toggleFocusMode());
+  $("#closeFocusMode").addEventListener("click", () => toggleFocusMode(false));
   $("#taskForm").addEventListener("submit", addFocusTask);
   $("#focusNote").addEventListener("input", (event) => {
     settings.focusNote = event.target.value.slice(0, 240);
     clearTimeout(focusNoteSaveTimer);
-    focusNoteSaveTimer = setTimeout(saveSettings, 250);
+    focusNoteSaveTimer = setTimeout(() => { focusNoteSaveTimer = 0; saveSettings(); }, 250);
   });
   $("#closeDrawer").addEventListener("click", closeDrawer);
   $("#drawerScrim").addEventListener("click", closeDrawer);
@@ -2612,11 +2636,14 @@ function setupEvents() {
       clearTimeout(idleTimer);
       idleTimer = 0;
       hideIdleClock();
+      $("#wallpaperVideo").pause();
       if (snowFrame) cancelAnimationFrame(snowFrame);
       snowFrame = 0;
       snowLastFrame = 0;
     } else {
       resetIdleTimer(true);
+      scheduleWallpaperVideo();
+      updateWeather();
       if (isSnowEffectActive() && !reducedMotion.matches && !snowFrame) snowFrame = requestAnimationFrame(animateSnow);
     }
   });
@@ -2679,7 +2706,7 @@ function setupEvents() {
   });
 }
 
-async function init() {
+async function initializeApp() {
   // Класс снимаем только когда вся волна появления отыграна:
   // последний блок стартует с задержкой .42s и живёт .95s — 1600ms с запасом.
   setTimeout(() => document.body.classList.remove("page-enter"), 1600);
@@ -2706,7 +2733,17 @@ async function init() {
     const shouldSnow = isSnowEffectActive();
     if ($("#snowCanvas").classList.contains("is-active") !== shouldSnow) setSnowEffect(shouldSnow);
   }, 60 * 1000);
-  setInterval(updateWeather, 10 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) updateWeather(); }, 10 * 60 * 1000);
+}
+
+async function init() {
+  try { await initializeApp(); } catch (error) { reportInitializationError(error); }
+}
+
+function reportInitializationError(error) {
+  console.error("yunagi: initialization failed", error);
+  document.body.classList.add("assets-ready");
+  showToast("Не удалось загрузить часть интерфейса. Попробуй открыть новую вкладку.");
 }
 
 init();
