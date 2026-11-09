@@ -1,0 +1,25 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+function node(){return {children:[],style:{},classList:{add(){},remove(){},contains:()=>false},append(...children){this.children.push(...children)},replaceChildren(...children){this.children=children},setAttribute(){},addEventListener(name,fn){this[name]=fn}}}
+const toast=node();
+const document={createElement:node,querySelector:()=>toast,body:node()};
+const context={document,console,structuredClone,assert,window:{matchMedia:()=>({matches:false})},setTimeout:()=>0,clearTimeout(){}};
+vm.createContext(context);
+let source=fs.readFileSync('newtab.js','utf8').replace(/init\(\);\s*$/,'');
+source+=`\nsettings=structuredClone(DEFAULTS);
+renderBookmarks=()=>{};saveSettings=()=>{};showToast=()=>{};editBookmark=()=>{};
+const count=settings.bookmarks.length;
+const removed=settings.bookmarks[1];
+removeBookmark(1);
+assert.equal(settings.bookmarks.length,count-1);
+assert.ok(!settings.bookmarks.includes(removed));
+const restore=document.querySelector('#toast').children[1];restore.click();
+assert.equal(settings.bookmarks.length,count);
+assert.equal(settings.bookmarks[1],removed);
+addBookmark();assert.equal(settings.bookmarks.length,count+1);
+while(settings.bookmarks.length<24)addBookmark();
+addBookmark();assert.equal(settings.bookmarks.length,24);
+assert.equal(validCityLocation({latitude:91,longitude:0}),null);
+assert.equal(validCityLocation({latitude:NaN,longitude:0}),null);
+assert.equal(validCityLocation({name:'Paris',latitude:48.8,longitude:2.3}).name,'Paris');
+console.log('PASS: bookmark deletion, restore, add limit and city coordinate validation');`;
+vm.runInContext(source,context);

@@ -15,10 +15,10 @@ function node() {
 const item = node(); item.dataset.layoutItem = 'weather';
 const body = node(); body.classList.add('layout-editing');
 const canvas = node(); canvas.clientWidth = 2400; canvas.clientHeight = 1200;
-const selection = node(), bar = node();
+const selection = node(), bar = node(), undo = node();
 const document = {
   body, listeners: {}, createElement: node,
-  querySelector: selector => ({'.canvas':canvas,'#editorSelection':selection,'#layoutEditBar':bar})[selector] || null,
+  querySelector: selector => ({'.canvas':canvas,'#editorSelection':selection,'#layoutEditBar':bar,'#undoLayoutEdit':undo})[selector] || null,
   querySelectorAll: selector => selector === '[data-layout-item]' ? [item] : selector === '.is-layout-selected' && item.classList.contains('is-layout-selected') ? [item] : [],
   addEventListener(name, fn) { this.listeners[name] = fn; },
   removeEventListener(name, fn) { if (this.listeners[name] === fn) delete this.listeners[name]; }
@@ -50,4 +50,9 @@ assert.equal(body.classList.contains('layout-dragging'),false);
 vm.runInContext('toggleLayoutEditor(false)', context);
 assert.equal(item.classList.contains('is-layout-selected'),false);
 assert.equal(bar.inert,true);
-console.log('PASS: drag, resize, pointer cancellation, editor exit');
+vm.runInContext('undoLayout()', context);
+assert.equal(vm.runInContext('settings.widgetLayout.weather.w',context),2);
+vm.runInContext('undoLayout()', context);
+assert.equal(vm.runInContext('settings.widgetLayout.weather.x',context),1);
+assert.equal(undo.disabled,true);
+console.log('PASS: drag, resize, pointer cancellation, editor exit and undo history');

@@ -22,6 +22,8 @@
     <canvas class="snow-canvas" id="snowCanvas" aria-hidden="true"></canvas>
 
     <main class="canvas">
+      <div class="layout-guide layout-guide-x" id="layoutGuideX" hidden aria-hidden="true"></div>
+      <div class="layout-guide layout-guide-y" id="layoutGuideY" hidden aria-hidden="true"></div>
       <section class="left-stack" id="leftStack" aria-label="Погода и закладки">
         <button class="glass weather-card widget" data-layout-item="weather" data-widget="weather" type="button" aria-label="Погода. Нажми, чтобы увидеть прогноз">
           <span class="weather-icon" id="weatherIcon" aria-hidden="true">☁</span>
@@ -59,7 +61,7 @@
           <button class="engine-button" id="engineButton" type="button" aria-label="Выбрать поисковую систему" title="Поисковая система">G</button>
           <span class="search-hint" aria-hidden="true">↵</span>
         </form>
-        <span class="search-caption" id="searchCaption" role="button" tabindex="0" title="Нажми, чтобы сменить фразу" aria-label="Подпись. Нажми, чтобы сменить фразу">ТИШИНА. ТВОЁ ПРОСТРАНСТВО.</span>
+        <span class="search-caption" id="searchCaption" role="button" tabindex="0" title="Нажми, чтобы сменить фразу" aria-label="Подпись. Нажми, чтобы сменить фразу">Мягкий свет и немного тишины</span>
       </section>
 
       <section class="focus-panel glass" id="focusPanel" aria-label="Режим фокуса" aria-hidden="true">
@@ -90,13 +92,14 @@
       <div class="layout-edit-bar" id="layoutEditBar" aria-hidden="true" inert role="region" aria-label="Конструктор страницы">
         <div class="editor-heading"><span class="editor-kicker">ТВОЁ ПРОСТРАНСТВО</span><strong>Конструктор страницы</strong></div>
         <div class="editor-actions">
+          <button class="editor-tool" id="undoLayoutEdit" type="button" disabled title="Отменить действие · Ctrl+Z">↶</button>
           <button class="editor-tool" id="toggleEditorGrid" type="button" aria-pressed="true" title="Показать сетку"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg><span>Сетка</span></button>
           <button class="editor-tool" id="resetWidgetLayout" type="button" title="Вернуть исходное расположение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/></svg><span>Сбросить</span></button>
           <span class="editor-divider"></span>
           <button class="editor-tool" id="cancelLayoutEdit" type="button">Отмена</button>
           <button class="drawer-button primary editor-done" id="finishLayoutEdit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Готово</button>
         </div>
-        <div class="editor-footer"><span id="editorSelection" aria-live="polite">Выбери блок и перетащи на новое место</span><span class="editor-key-hint">Esc · сохранить и выйти</span></div>
+        <div class="editor-footer"><span id="editorSelection" aria-live="polite">Выбери блок и перетащи на новое место</span><span class="editor-key-hint">Стрелки · двигать / Ctrl+Z · отменить</span></div>
       </div>
       <button class="settings-trigger" id="openGeneralSettings" type="button" aria-label="Общие настройки" title="Общие настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9-2-.6-2 3.5 1.5 1.6v2.8L2.4 15l2 3.5 2-.6 2 .9L9 21h4l.6-2.2 2-.9 2 .6 2-3.5-1.5-1.6v-2.8L19.6 9l-2-3.5-2 .6-2-.9L13 3Z" transform="translate(1 0)"/><circle cx="12" cy="12" r="3.2"/></svg>

@@ -15,6 +15,7 @@ const DEFAULTS = {
   ],
   engine: "google",
   city: "Tokyo",
+  cityLocation: null,
   units: "celsius",
   timeFormat: "24",
   brightness: 76,
@@ -57,44 +58,29 @@ const ENGINES = {
   bing: { label: "Bing", mark: "b", url: "https://www.bing.com/search?q=" }
 };
 
-// Подпись под строкой поиска задаёт тон вкладки — тихий, пассивный, добрый.
-// Без приказов («соберись», «дыши медленнее») и без намёков на вину («мир ждёт
-// вне экрана»): вкладка не должна ни к чему понуждать, только быть местом,
-// куда можно вернуться. Сравнительно короткие фразы — подпись мелкая
-// (letter-spacing .16em), длинные начинают переноситься на мобильных.
+// Короткие спокойные образы: без советов, оценок и призывов.
 const SEARCH_CAPTIONS = [
-  "ТИШИНА. ТВОЁ ПРОСТРАНСТВО.",
-  "СВЕТ ТИХО ПАДАЕТ НА СТЕНЫ.",
-  "ЗДЕСЬ НЕ НУЖНО СПЕШИТЬ.",
-  "ВСЁ УСПЕЕТСЯ. ЧУТЬ-ЧУТЬ ПОЗЖЕ.",
-  "ОДНА МЫСЛЬ. ЭТО ДОСТАТОЧНО.",
-  "ГЛАВНОЕ ОДНО. ОСТАЛЬНОЕ ЖДЁТ.",
-  "ТЁПЛЫЙ ШУМ ДОМА.",
-  "ОКНО СМОТРИТ НА ОСЕНЬ.",
-  "ЛЕГКО. ПРОСТО. БЕЗ ЛИШНЕГО.",
-  "ПАУЗА ТОЖЕ РАБОТА.",
-  "СЕГОДНЯ ДОСТАТОЧНО ОДНОГО ШАГА.",
-  "УТРО ЕЩЁ НИКУДА НЕ СПЕШИТ.",
-  "ВОЗДУХ ТИХИЙ, СВЕТ МЯГКИЙ.",
-  "ЗА ОКНОМ СВОЁ ВРЕМЯ.",
-  "ДЕНЬ МЕДЛЕННО НАЧИНАЕТСЯ.",
-  "ВСЁ НА СВОИХ МЕСТАХ.",
-  "ЧАСЫ ИДУТ РОВНО.",
-  "ДОМ ДЕРЖИТ СВОЁ ТЕПЛО.",
-  "КОФЕ ОСТЫВАЕТ В ТИШИНЕ.",
-  "ПОЛДЕНЬ ПАХНЕТ ТЕСТОМ.",
-  "ЛАМПА ГРЕЕТ МЯГКИМ СВЕТОМ.",
-  "ОБЛАКА ИДУТ НА СЕВЕР.",
-  "ГДЕ-ТО ТОЧНО ИДЁТ ДОЖДЬ.",
-  "ТЕНИ МЕДЛЕННО ДВИГАЮТСЯ.",
-  "ВЕЧЕР УЖЕ СМОТРИТ В ОКНО.",
-  "СЕГОДНЯ НИЧЕГО НЕ ГОРИТ.",
-  "ПЫЛЬ СВЕТИТСЯ В ЛУЧЕ СВЕТА.",
-  "ПТИЦЫ ГДЕ-ТО РЯДОМ.",
-  "ЗДЕСЬ МОЖНО НЕ СТАРАТЬСЯ.",
-  "СРОЧНОГО НЕТ. ПОЧТИ НИКОГДА.",
-  "УТРО ПАХНЕТ ТЕПЛЫМ ХЛЕБОМ.",
-  "СВЕТ ЛЕЖИТ НА СТОЛЕ РОВНО."
+  "Мягкий свет и немного тишины",
+  "Тихое начало нового дня",
+  "Шелест листвы за открытым окном",
+  "Тёплый свет в знакомом окне",
+  "Небо отражается в воде",
+  "Лёгкий ветер в кронах деревьев",
+  "Тихий вечер у окна",
+  "Солнечные пятна на полу",
+  "Капли дождя на стекле",
+  "Свет сквозь тонкие шторы",
+  "Запах свежего воздуха после дождя",
+  "Медленные облака над городом",
+  "Прохлада утра и тёплая чашка",
+  "Далёкий шум моря",
+  "Мягкие тени в вечернем свете",
+  "Тихий сад после дождя",
+  "Последние лучи на крышах",
+  "Тёплый плед и открытая книга",
+  "Свет фонарей на мокрой улице",
+  "Тишина между волнами",
+  "Ахули нет то?)"
 ];
 
 const CAPTION_ROTATE_MS = 5 * 60 * 1000;
@@ -287,7 +273,7 @@ function setupSettingsSync() {
       settings[key] = structuredClone(value);
       savedSettings[key] = structuredClone(value);
       changed = true;
-      if (["city", "units"].includes(key)) weatherChanged = true;
+      if (["city", "cityLocation", "units"].includes(key)) weatherChanged = true;
     }
     if (!changed) return;
     if (settings.videoEnabled && settings.hasCustomVideo && !settings.customVideo) {
@@ -501,6 +487,7 @@ function renderWidgetLayout() {
     return { item, top: Math.max(top, Math.min(desiredTop, maxTop)) };
   });
   for (const { item, top } of finalPositions) item.style.top = `${top}px`;
+  updateLayoutGuides();
   $("#leftStack").dataset.layoutMode = mode;
   $("#layoutEditBar")?.setAttribute("aria-hidden", String(!document.body.classList.contains("layout-editing")));
   $("#toggleLayoutEdit")?.classList.toggle("is-active", document.body.classList.contains("layout-editing"));
@@ -518,10 +505,45 @@ function setLayoutMode(mode) {
 }
 
 let layoutEditorSnapshot = null;
+let layoutHistory = [];
+function rememberLayout() {
+  layoutHistory.push(structuredClone(settings.widgetLayout));
+  if (layoutHistory.length > 40) layoutHistory.shift();
+  const undo = $("#undoLayoutEdit"); if (undo) undo.disabled = false;
+}
+function undoLayout() {
+  const previous = layoutHistory.pop();
+  if (!previous) return;
+  settings.widgetLayout = previous;
+  $("#undoLayoutEdit").disabled = !layoutHistory.length;
+  renderWidgetLayout(); saveSettings();
+}
+function updateLayoutGuides() {
+  const active = $(".is-layout-selected");
+  const vertical = $("#layoutGuideX"), horizontal = $("#layoutGuideY");
+  if (!vertical || !horizontal) return;
+  vertical.hidden = horizontal.hidden = true;
+  if (!active || !document.body.classList.contains("layout-editing")) return;
+  const cell = settings.widgetLayout[active.dataset.layoutItem];
+  if (cell) $("#editorSelection").textContent = LAYOUT_LABELS[active.dataset.layoutItem] + " · " + cell.w + " × " + (cell.h || "авто") + " · колонка " + cell.x + ", ряд " + cell.y;
+  const rect = active.getBoundingClientRect();
+  for (const other of document.querySelectorAll('[data-layout-item]:not([hidden])')) {
+    if (other === active) continue;
+    const r = other.getBoundingClientRect();
+    for (const x of [rect.left, rect.left + rect.width / 2, rect.right]) {
+      if ([r.left, r.left + r.width / 2, r.right].some(v => Math.abs(x-v) < 3)) { vertical.hidden = false; vertical.style.left = x + "px"; }
+    }
+    for (const y of [rect.top, rect.top + rect.height / 2, rect.bottom]) {
+      if ([r.top, r.top + r.height / 2, r.bottom].some(v => Math.abs(y-v) < 3)) { horizontal.hidden = false; horizontal.style.top = y + "px"; }
+    }
+  }
+}
 const LAYOUT_LABELS = { weather: "Погода", bookmarks: "Избранное", date: "Дата", clock: "Часы", search: "Поиск" };
 
 function toggleLayoutEditor(enabled = !document.body.classList.contains("layout-editing")) {
   if (enabled && !document.body.classList.contains("layout-editing")) {
+    layoutHistory = [];
+    $("#undoLayoutEdit").disabled = true;
     layoutEditorSnapshot = { layoutMode: settings.layoutMode, widgetLayout: structuredClone(settings.widgetLayout) };
     toggleWeatherPanel(false);
     hideIdleClock();
@@ -535,6 +557,7 @@ function toggleLayoutEditor(enabled = !document.body.classList.contains("layout-
     $("#editorSelection").textContent = "Выбери блок и перетащи на новое место";
     resetIdleTimer(true);
   }
+  for (const handle of document.querySelectorAll(".layout-drag-handle")) handle.tabIndex = enabled ? 0 : -1;
   renderWidgetLayout();
   saveSettings();
 }
@@ -549,7 +572,9 @@ function setupWidgetEditor() {
     resize.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 11v6h6M11 7h6v6"/></svg>';
     drag.title = "Переместить: " + label;
     resize.title = "Изменить размер: " + label;
-    drag.setAttribute("aria-label", "Перетащить блок");
+    drag.setAttribute("aria-label", "Переместить " + label + ". Стрелки — движение по сетке");
+    drag.setAttribute("role", "button");
+    drag.tabIndex = -1;
     resize.setAttribute("aria-label", "Изменить размер блока");
     item.append(drag, resize);
     const start = (event, resizeMode) => {
@@ -559,6 +584,7 @@ function setupWidgetEditor() {
       const key = item.dataset.layoutItem;
       const rect = item.getBoundingClientRect();
       const initial = { ...settings.widgetLayout[key] };
+      rememberLayout();
       const pointerX = event.clientX;
       const pointerY = event.clientY;
       const canvas = $(".canvas");
@@ -598,6 +624,14 @@ function setupWidgetEditor() {
       document.addEventListener("pointerup", finish, { once: true });
       document.addEventListener("pointercancel", finish, { once: true });
     };
+    drag.addEventListener("focus", () => {
+      for (const other of document.querySelectorAll(".is-layout-selected")) other.classList.remove("is-layout-selected");
+      item.classList.add("is-layout-selected"); updateLayoutGuides();
+    });
+    item.addEventListener("click", (event) => {
+      if (!document.body.classList.contains("layout-editing")) return;
+      event.preventDefault(); drag.focus();
+    });
     drag.addEventListener("pointerdown", (event) => start(event, false));
     resize.addEventListener("pointerdown", (event) => start(event, true));
   });
@@ -782,14 +816,72 @@ function bookmarkFavicon(url) {
   }
 }
 
+function editBookmark(index) {
+  openDrawer("bookmarks");
+  const items = $("#drawerContent").querySelectorAll(".bookmark-edit-item");
+  const field = items[index]?.querySelector("input");
+  field?.focus(); field?.select();
+}
+function addBookmark() {
+  if (settings.bookmarks.length >= 24) { showToast("Можно добавить до 24 сайтов"); return; }
+  settings.bookmarks.push({ name: "Новый сайт", url: "", color: "#667a82" });
+  saveSettings(); renderBookmarks(); editBookmark(settings.bookmarks.length - 1);
+}
+function removeBookmark(index) {
+  const removed = settings.bookmarks.splice(index, 1)[0];
+  if (!removed) return;
+  renderBookmarks(); saveSettings();
+  if (document.body.classList.contains("drawer-open")) renderDrawer();
+  const toast = $("#toast");
+  clearTimeout(toastTimer); toast.replaceChildren(el("span", "", "Сайт удалён"));
+  const undo = el("button", "toast-undo", "Вернуть"); undo.type = "button";
+  undo.addEventListener("click", () => {
+    if (settings.bookmarks.length >= 24) { showToast("Нет места: уже 24 сайта"); return; }
+    settings.bookmarks.splice(Math.min(index, settings.bookmarks.length), 0, removed);
+    renderBookmarks(); saveSettings();
+    if (document.body.classList.contains("drawer-open")) renderDrawer();
+    showToast("Сайт восстановлен");
+  }, { once: true });
+  toast.append(undo); toast.classList.add("visible");
+  toastTimer = setTimeout(() => toast.classList.remove("visible"), 8000);
+}
+function closeBookmarkMenu() { $("#bookmarkMenu")?.remove(); }
+function openBookmarkMenu(event, index) {
+  event.preventDefault(); closeBookmarkMenu();
+  const menu = el("div", "bookmark-context-menu"); menu.id = "bookmarkMenu";
+  menu.setAttribute("role", "menu");
+  for (const [label, action] of [["Редактировать", () => editBookmark(index)], ["Добавить сайт", addBookmark], ["Удалить", () => removeBookmark(index)]]) {
+    const button = el("button", "", label); button.type = "button"; button.setAttribute("role", "menuitem");
+    button.addEventListener("click", () => { closeBookmarkMenu(); action(); }); menu.append(button);
+  }
+  document.body.append(menu);
+  const target = event.target.getBoundingClientRect();
+  const x = event.clientX || target.left, y = event.clientY || target.bottom;
+  menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + "px";
+  menu.querySelector("button").focus();
+  menu.addEventListener("keydown", e => {
+    const buttons = Array.from(menu.querySelectorAll("button"));
+    const index = buttons.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); buttons[(index + (e.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length].focus(); }
+    if (e.key === "Escape") { e.stopPropagation(); closeBookmarkMenu(); event.target.focus(); }
+  });
+}
+
 function renderBookmarks() {
   const grid = $("#bookmarkGrid");
+  const heading = $(".bookmarks-card .card-heading");
+  if (heading && !heading.querySelector("button")) {
+    const add = el("button", "bookmark-add-shortcut", "+"); add.type = "button"; add.title = "Добавить сайт"; add.setAttribute("aria-label", "Добавить сайт");
+    add.addEventListener("click", event => { event.stopPropagation(); if (!document.body.classList.contains("layout-editing")) addBookmark(); }); heading.append(add);
+  }
   grid.replaceChildren();
   const bookmarks = Array.isArray(settings.bookmarks) ? settings.bookmarks : [];
   if (!bookmarks.length) {
     const empty = document.createElement("p");
     empty.className = "empty-bookmarks";
-    empty.textContent = "Добавь первый сайт в настройках";
+    empty.textContent = "Здесь будут твои сайты";
+    const add = el("button", "drawer-button bookmark-empty-add", "Добавить сайт"); add.type = "button"; add.addEventListener("click", addBookmark); grid.append(add);
     grid.append(empty);
     scheduleWidgetLayout();
     return;
@@ -840,6 +932,7 @@ function renderBookmarks() {
     name.className = "bookmark-name";
     name.textContent = bookmark.name || "Сайт";
     button.append(icon, name);
+    button.addEventListener("contextmenu", event => { if (!document.body.classList.contains("layout-editing")) openBookmarkMenu(event, index); });
     grid.append(button);
   });
   // Блок подстраивается под количество закладок — пересчитываем размер после отрисовки.
@@ -949,7 +1042,7 @@ function paintWeather(data, stale = false) {
   $("#weatherCity").textContent = data.place.name;
   $("#weatherDescription").textContent = description;
   const age = new Date(data.at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  const status = stale ? "Последний прогноз: " + age : description;
+  const status = (stale ? "Последний прогноз: " : "Обновлено: ") + age;
   $(".weather-card").title = status;
   $(".weather-card").setAttribute("aria-label", description + ", " + displayTemperature(temp) + ", " + data.place.name + (stale ? ". " + status : ""));
   updateIdleWeather(icon, displayTemperature(temp) + " · " + data.place.name, status);
@@ -958,17 +1051,23 @@ function paintWeather(data, stale = false) {
   if (weatherPanelOpen) renderWeatherPanel();
 }
 
+let weatherLoading = false;
+
 async function updateWeather(force = false) {
   force = force === true;
   const request = ++weatherRequest;
   const city = (settings.city || "Tokyo").trim();
   const cache = readWeatherCache();
-  const matching = cache?.city === city && Array.isArray(cache.timeseries) && cache.timeseries.length && cache.place;
+  const matching = cache?.city === city && Array.isArray(cache.timeseries) && cache.timeseries.length && cache.place && (!settings.cityLocation || (cache.place.latitude === settings.cityLocation.latitude && cache.place.longitude === settings.cityLocation.longitude));
   let cached = false;
   if (matching) {
     try { paintWeather(cache, Date.now() - cache.at >= WEATHER_TTL); cached = true; } catch { /* Refetch invalid cache. */ }
-    if (cached && !force && Date.now() - cache.at < WEATHER_TTL) return;
+    if (cached && !force && Date.now() - cache.at < WEATHER_TTL) {
+      weatherLoading = false; if (weatherPanelOpen) renderWeatherPanel(); return;
+    }
   }
+  weatherLoading = true;
+  if (weatherPanelOpen) renderWeatherPanel();
   if (!cached) {
     weatherDetails = null;
     $("#weatherDescription").textContent = "Обновляем прогноз";
@@ -979,7 +1078,7 @@ async function updateWeather(force = false) {
     if (weatherPanelOpen) renderWeatherPanel();
   }
   try {
-    let place = matching ? cache.place : null;
+    let place = settings.cityLocation || (matching ? cache.place : null);
     if (!place) {
       const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
       url.search = new URLSearchParams({ name: city, count: "1", language: "ru", format: "json" });
@@ -1002,6 +1101,8 @@ async function updateWeather(force = false) {
       updateIdleWeather("☁", "Погода недоступна · " + city, "Погода недоступна");
     }
     console.info("yunagi weather:", error.message);
+  } finally {
+    if (request === weatherRequest) { weatherLoading = false; if (weatherPanelOpen) renderWeatherPanel(); }
   }
 }
 
@@ -1064,12 +1165,13 @@ function renderWeatherPanel() {
     ["closeWeather", "Закрыть прогноз", '<path d="m6 6 12 12M18 6 6 18"/>', () => toggleWeatherPanel(false)]
   ]) {
     const button = el("button", "weather-dialog-button");
-    button.id = id; button.type = "button"; button.title = label; button.setAttribute("aria-label", label);
+    button.id = id; button.type = "button";
+    if (id === "refreshWeather") { button.disabled = weatherLoading; button.classList.toggle("is-refreshing", weatherLoading); } button.title = label; button.setAttribute("aria-label", label);
     button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + path + '</svg>';
     button.addEventListener("click", action); actions.append(button);
   }
   head.append(title, actions); panel.append(head);
-  if (!weatherDetails) panel.append(el("p", "weather-panel-empty", "Прогноз пока недоступен. Попробуй обновить или проверь город в настройках."));
+  if (!weatherDetails) panel.append(el("p", "weather-panel-empty", weatherLoading ? "Загружаем прогноз…" : "Прогноз пока недоступен. Попробуй обновить или проверь город в настройках."));
   else {
     const hero = el("div", "weather-dialog-hero");
     const copy = el("div", "weather-dialog-copy");
@@ -1092,7 +1194,7 @@ function renderWeatherPanel() {
       const stat = el("div", "weather-panel-stat");
       stat.append(el("span", "weather-panel-stat-label", label), el("span", "weather-panel-stat-value", value)); stats.append(stat);
     }
-    panel.append(stats, el("p", "weather-dialog-status", weatherDetails.status || ""));
+    panel.append(stats, el("p", "weather-dialog-status", weatherLoading ? "Обновляем прогноз…" : weatherDetails.status || ""));
   }
   if (focusedId) panel.querySelector('#' + focusedId)?.focus();
 }
@@ -1232,6 +1334,7 @@ function makeRow(label, help, control) {
   const copy = el("span", "setting-label");
   copy.append(el("span", "", label));
   if (help) copy.append(el("span", "setting-help", help));
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(control.tagName) && !control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
   const controlWrap = el("span", "setting-control");
   controlWrap.append(control);
   row.append(copy, controlWrap);
@@ -1721,6 +1824,7 @@ function normalizeImportedSettings(source) {
     bookmarks,
     engine: Object.hasOwn(ENGINES, input.engine) ? input.engine : DEFAULTS.engine,
     city: String(input.city || DEFAULTS.city).trim().slice(0, 70) || DEFAULTS.city,
+    cityLocation: validCityLocation(input.cityLocation),
     units: input.units === "fahrenheit" ? "fahrenheit" : "celsius",
     timeFormat: input.timeFormat === "12" ? "12" : "24",
     clockDisplay: ["analog", "digital", "both"].includes(input.clockDisplay) ? input.clockDisplay : DEFAULTS.clockDisplay,
@@ -1793,12 +1897,58 @@ async function importSettingsBackup(input) {
   reader.readAsText(file);
 }
 
+function validCityLocation(place) {
+  if (!place || typeof place.latitude !== "number" || typeof place.longitude !== "number" || !Number.isFinite(place.latitude) || !Number.isFinite(place.longitude) || Math.abs(place.latitude) > 90 || Math.abs(place.longitude) > 180) return null;
+  return { name: String(place.name || "").slice(0,70), latitude: place.latitude, longitude: place.longitude, admin1: String(place.admin1 || "").slice(0,100), country: String(place.country || "").slice(0,100) };
+}
+
 function renderWeatherSettings(content) {
   content.append(...drawerHeading("Небо сегодня", "Погода загружается для указанного города. Геолокация не нужна."));
   const section = makeSection("ПОГОДА");
-  const city = document.createElement("input"); city.type = "text"; city.value = settings.city; city.placeholder = "Например, Токио"; city.maxLength = 70;
-  city.addEventListener("change", async () => { settings.city = city.value.trim() || DEFAULTS.city; city.value = settings.city; await saveSettings(); updateWeather(); });
-  section.append(makeRow("Город", "Название города на любом языке.", city));
+  const cityControl = el("div", "city-control");
+  const city = document.createElement("input"); city.type = "search"; city.value = settings.city; city.placeholder = "Начни вводить город…"; city.maxLength = 70; city.autocomplete = "off"; city.setAttribute("aria-label", "Найти город");
+  const results = el("div", "city-results"); results.hidden = true;
+  const status = el("span", "city-status", settings.cityLocation ? [settings.cityLocation.name, settings.cityLocation.admin1, settings.cityLocation.country].filter(Boolean).join(", ") : "Выбери город из результатов, чтобы не перепутать одноимённые места.");
+  status.setAttribute("role", "status");
+  let timer, generation = 0;
+  city.addEventListener("input", () => {
+    clearTimeout(timer); const request = ++generation; results.replaceChildren(); results.hidden = true;
+    const query = city.value.trim();
+    if (query.length < 2) { status.textContent = "Введи хотя бы две буквы."; return; }
+    status.textContent = "Ищем города…";
+    timer = setTimeout(async () => {
+      try {
+        const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
+        url.search = new URLSearchParams({ name: query, count: "6", language: "ru", format: "json" });
+        const data = await fetchWeatherJson(url);
+        if (request !== generation || !city.isConnected) return;
+        const places = data.results || [];
+        status.textContent = places.length ? "Выбери нужный город" : "Ничего не найдено. Попробуй другое название.";
+        results.hidden = !places.length;
+        places.forEach(place => {
+          const button = el("button", "city-result"); button.type = "button";
+          button.append(el("strong", "", place.name), el("span", "", [place.admin1, place.country].filter(Boolean).join(", ")));
+          button.addEventListener("click", () => {
+            generation++; settings.city = place.name; settings.cityLocation = validCityLocation(place);
+            city.value = place.name; results.hidden = true;
+            status.textContent = [place.name, place.admin1, place.country].filter(Boolean).join(", ");
+            saveSettings(); updateWeather(true); city.focus();
+          }); results.append(button);
+        });
+      } catch { if (request === generation && city.isConnected) status.textContent = "Поиск недоступен. Проверь подключение и попробуй ещё раз."; }
+    }, 300);
+  });
+  city.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" && !results.hidden) { event.preventDefault(); results.querySelector("button")?.focus(); }
+    if (event.key === "Escape" && !results.hidden) { event.stopPropagation(); results.hidden = true; }
+  });
+  results.addEventListener("keydown", event => {
+    const buttons = Array.from(results.querySelectorAll("button")); const index = buttons.indexOf(document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length-1)) % buttons.length]?.focus(); }
+    if (event.key === "Escape") { event.stopPropagation(); results.hidden = true; city.focus(); }
+  });
+  cityControl.append(city, status, results);
+  section.append(cityControl);
   const units = makeSelect([["celsius", "Цельсий · °C"], ["fahrenheit", "Фаренгейт · °F"]], settings.units);
   units.addEventListener("change", async () => { settings.units = units.value; await saveSettings(); updateWeather(); });
   section.append(makeRow("Единицы", "Температура в виджете.", units));
@@ -1940,7 +2090,7 @@ function renderBookmarkSettings(content) {
       renderBookmarks();
       await saveSettings();
     });
-    remove.addEventListener("click", async () => { settings.bookmarks.splice(index, 1); renderBookmarks(); rebuildList(); await saveSettings(); });
+    remove.addEventListener("click", () => removeBookmark(index));
     const moveUp = el("button", "bookmark-tool-button", "↑"); moveUp.type = "button"; moveUp.title = "Переместить выше"; moveUp.setAttribute("aria-label", "Переместить выше: " + bookmark.name); moveUp.disabled = index === 0;
     const moveDown = el("button", "bookmark-tool-button", "↓"); moveDown.type = "button"; moveDown.title = "Переместить ниже"; moveDown.setAttribute("aria-label", "Переместить ниже: " + bookmark.name); moveDown.disabled = index === bookmarks.length - 1;
     const move = async (direction) => {
@@ -2385,6 +2535,7 @@ function startSearch(event) {
 }
 
 function setupEvents() {
+  document.addEventListener("pointerdown", event => { if (!event.target.closest("#bookmarkMenu")) closeBookmarkMenu(); });
   $("#searchForm").addEventListener("submit", startSearch);
   $("#engineButton").addEventListener("click", toggleEngineMenu);
   $("#openGeneralSettings").addEventListener("click", () => openDrawer("general"));
@@ -2398,7 +2549,9 @@ function setupEvents() {
     const hidden = document.body.classList.toggle("editor-grid-hidden");
     $("#toggleEditorGrid").setAttribute("aria-pressed", String(!hidden));
   });
+  $("#undoLayoutEdit").addEventListener("click", undoLayout);
   $("#resetWidgetLayout").addEventListener("click", () => {
+    rememberLayout();
     settings.widgetLayout = JSON.parse(JSON.stringify(WIDGET_LAYOUT_DEFAULTS));
     settings.layoutMode = document.body.classList.contains("layout-editing") ? "custom" : "free";
     renderWidgetLayout();
@@ -2488,6 +2641,18 @@ function setupEvents() {
   });
   document.addEventListener("keydown", (event) => {
     resetIdleTimer(true);
+    const editingText = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+    if (document.body.classList.contains("layout-editing") && !editingText) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); undoLayout(); return; }
+      const selected = $(".is-layout-selected");
+      if (selected && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault(); rememberLayout();
+        const cell = settings.widgetLayout[selected.dataset.layoutItem];
+        cell.x = Math.max(1, Math.min(25-cell.w, cell.x + (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0)));
+        cell.y = Math.max(1, Math.min(13-(cell.h || 1), cell.y + (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0)));
+        renderWidgetLayout(); saveSettings(); return;
+      }
+    }
     if (event.key === "Tab" && document.body.classList.contains("drawer-open")) {
       const controls = [...$("#settingsDrawer").querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')].filter((item) => !item.disabled && item.getClientRects().length);
       const first = controls[0], last = controls.at(-1);
@@ -2495,6 +2660,7 @@ function setupEvents() {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
     if (event.key === "Escape") {
+      closeBookmarkMenu();
       const hadDrawer = document.body.classList.contains("drawer-open");
       toggleWeatherPanel(false);
       closeDrawer(); $(".engine-menu")?.remove();

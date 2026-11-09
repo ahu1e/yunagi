@@ -660,9 +660,11 @@ body.icons-mono .bookmark-icon { filter: grayscale(1); }
   display: block;
   margin-top: 14px;
   color: rgba(255, 255, 255, .62);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .16em;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: .025em;
+  line-height: 1.6;
+  text-wrap: balance;
   text-shadow: 0 1px 9px rgba(0, 0, 0, .35);
   transition: opacity var(--t) var(--ease), transform var(--t) var(--ease), visibility var(--t);
 }
@@ -1431,7 +1433,7 @@ body.layout-editing .bookmark-item { cursor: default; }
   .bookmark-grid { gap: 11px 7px; }
   .search-area { bottom: 86px; width: calc(100vw - 32px); }
   .search-box { height: 54px; }
-  .search-caption { font-size: 9px; letter-spacing: .14em; }
+  .search-caption { font-size: 11px; letter-spacing: .025em; }
   .brand-mark { bottom: 22px; }
   .settings-trigger, .focus-trigger, .layout-trigger { width: 42px; height: 42px; bottom: 16px; }
   .focus-trigger { right: calc(var(--gutter-x) + 50px); }
@@ -1460,7 +1462,7 @@ body.layout-editing .bookmark-item { cursor: default; }
   .date-card, .clock-card { max-width: 92px; }
   .clock-card { gap: 8px; }
   .analog-clock { width: 36px; height: 36px; flex-basis: 36px; }
-  .search-caption { font-size: 8px; letter-spacing: .12em; }
+  .search-caption { font-size: 10px; letter-spacing: .02em; }
   .focus-trigger { right: calc(var(--gutter-x) + 50px); }
   .layout-trigger { display: none; }
 }
@@ -1629,3 +1631,44 @@ body.layout-editing .bookmark-item { cursor: default; }
   .bookmark-editor-preview { width: 34px; height: 34px; border-radius: 11px; }
   .bookmark-editor-preview .bookmark-favicon { width: 22px; height: 22px; }
 }
+
+/* Shared settings controls and action states. */
+.setting-section { border-radius: 20px; }
+.setting-row { gap: 20px; padding-top: 15px; padding-bottom: 15px; }
+.setting-label > span:first-child { font-weight: 500; }
+.setting-help { line-height: 1.65; }
+.setting-control input:not([type="range"]):not([type="checkbox"]):not([type="color"]), .setting-control select, .city-control > input { min-height: 40px; border: 1px solid rgba(255,255,255,.12); border-radius: 11px; padding: 0 12px; background: rgba(255,255,255,.045); color: var(--text); font: inherit; }
+.drawer-button:disabled, .editor-tool:disabled { opacity: .35; cursor: default; }
+.editor-tool:disabled:hover { background: transparent; }
+.layout-guide { position: fixed; z-index: 7; pointer-events: none; background: rgba(184,214,246,.72); box-shadow: 0 0 6px rgba(184,214,246,.12); }
+.layout-guide[hidden] { display: none; }
+.layout-guide-x { top: var(--gutter-y); bottom: var(--gutter-y); width: 1px; }
+.layout-guide-y { left: var(--gutter-x); right: var(--gutter-x); height: 1px; }
+.bookmark-add-shortcut { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.04); color: var(--muted); font-size: 18px; cursor: pointer; }
+.bookmark-add-shortcut:hover { color: white; background: rgba(255,255,255,.12); }
+.bookmarks-card.is-single-column .card-heading { display: none; }
+.bookmark-empty-add { grid-column: 1 / -1; font-size: 11px; }
+.bookmark-context-menu { position: fixed; z-index: 60; width: 190px; padding: 6px; border: 1px solid rgba(255,255,255,.14); border-radius: 16px; background: rgba(24,26,30,.96); backdrop-filter: blur(24px); box-shadow: 0 12px 40px #0006; }
+.bookmark-context-menu button { display: block; width: 100%; padding: 11px 12px; border: 0; border-radius: 10px; background: transparent; text-align: left; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.bookmark-context-menu button:hover, .bookmark-context-menu button:focus-visible { background: rgba(255,255,255,.08); }
+.bookmark-context-menu button:last-child { color: #f1abab; }
+.toast { display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 24px); }
+.toast-undo { border: 0; background: transparent; padding: 5px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.city-control { display: grid; gap: 10px; margin: 16px 0; }
+.city-control > input { width: 100%; }
+.city-status { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.city-results { display: grid; gap: 3px; padding: 5px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(0,0,0,.1); }
+.city-results[hidden] { display: none; }
+.city-result { display: flex; flex-direction: column; gap: 5px; padding: 11px; border: 0; border-radius: 9px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.city-result:hover, .city-result:focus-visible { background: rgba(255,255,255,.07); }
+.city-result strong { font-size: 13px; font-weight: 500; }
+.city-result span { font-size: 11px; color: var(--muted); }
+.weather-dialog-button:disabled { opacity: .45; cursor: default; }
+.weather-dialog-button.is-refreshing svg { animation: refresh-spin 1.2s linear infinite; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+:root[data-surface="clear"] { --glass-color: rgba(15,19,26,.4); --glass-color-hover: rgba(25,30,38,.48); }
+:root[data-surface="clear"] .weather-panel { background-color: rgba(20,24,30,.84); }
+:root[data-surface="frosted"] .weather-panel { background-color: rgba(49,53,60,.86); }
+@media (max-width: 700px) { .layout-edit-bar { width: calc(100vw - 24px); grid-template-columns: 1fr; gap: 12px; } .editor-actions { flex-wrap: wrap; } .editor-key-hint { display: none; } }
+@media (max-width: 480px) { .setting-row { align-items: flex-start; gap: 12px; } .setting-control { max-width: 100%; } .setting-control select { max-width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .weather-dialog-button.is-refreshing svg { animation: none; } }
