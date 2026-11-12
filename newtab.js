@@ -45,7 +45,8 @@ const DEFAULTS = {
   showCaption: true,
   snowEnabled: false,
   snowAccumulation: true,
-  snowIntensity: "normal",
+  snowDensity: 45,
+  snowWind: 20,
   snowSchedule: false,
   themeMode: "manual",
   idleClockDelay: 120,
@@ -184,7 +185,7 @@ async function loadSettings() {
   try {
     let stored;
     if (globalThis.chrome?.storage?.local) {
-      stored = await chrome.storage.local.get(Object.keys(DEFAULTS).filter(key => key !== "customVideo"));
+      stored = await chrome.storage.local.get([...Object.keys(DEFAULTS).filter(key => key !== "customVideo"), "snowIntensity"]);
       if (stored.videoEnabled && stored.hasCustomVideo) Object.assign(stored, await chrome.storage.local.get("customVideo"));
     } else stored = JSON.parse(localStorage.getItem("yunagi-settings") || localStorage.getItem("yukinagi-settings") || "{}");
     settings = normalizeImportedSettings(stored);
@@ -1407,6 +1408,7 @@ let drawerReturnFocus = null;
 
 function openDrawer(kind = "general") {
   if (!document.body.classList.contains("drawer-open")) drawerReturnFocus = document.activeElement;
+  snowDrifts?.forgetPointer();
   $(".canvas").inert = true;
   $("#settingsDrawer").inert = false;
   clearTimeout(idleTimer);
@@ -1743,25 +1745,45 @@ function renderGeneralSettings(content) {
   });
   seasonal.append(makeRow("Снег на виджетах", "Снег собирается на виджетах. В центре мышь перемешивает его, у боковых краёв — сбрасывает вниз. Работает при включённом снегопаде.", accumulation.label));
 
-  const intensity = makeSelect([["soft", "Редкий"], ["normal", "Обычный"], ["dense", "Плотный"]], settings.snowIntensity);
-  intensity.disabled = !isSnowEffectActive();
-  intensity.addEventListener("change", async () => {
-    settings.snowIntensity = intensity.value;
-    await saveSettings();
-    if (isSnowEffectActive()) setSnowEffect(true);
-  });
-  seasonal.append(makeRow("Интенсивность", "Частота и количество снежинок.", intensity));
+  const snowSliders = [];
+  for (const [key, label, help] of [
+    ["snowDensity", "Плотность снега", "От нескольких снежинок до густого снегопада."],
+    ["snowWind", "Сила ветра", "От штиля до сильных боковых порывов."],
+  ]) {
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.value = settings[key];
+    slider.setAttribute("aria-label", label);
+    slider.disabled = !isSnowEffectActive();
+    const value = el("output", "", slider.value + "%");
+    value.setAttribute("aria-hidden", "true");
+    const control = el("span", "snow-slider");
+    control.append(slider, value);
+    slider.addEventListener("input", () => {
+      settings[key] = slider.valueAsNumber;
+      value.textContent = slider.value + "%";
+      if (key === "snowDensity" && isSnowEffectActive()) {
+        createSnowflakes(true);
+        if (reducedMotion.matches) drawSnowflakes(0, true);
+      }
+      scheduleSaveSettings();
+    });
+    snowSliders.push(slider);
+    seasonal.append(makeRow(label, help, control));
+  }
   seasonal.append(el("p", "setting-help", "Эффект работает только в новой вкладке, не использует сеть и автоматически становится статичным при включённом в системе уменьшении анимации."));
   snowToggle.addEventListener("change", async () => {
     settings.snowEnabled = snowToggle.checked;
-    intensity.disabled = !isSnowEffectActive();
+    for (const slider of snowSliders) slider.disabled = !isSnowEffectActive();
     await saveSettings();
     setSnowEffect(isSnowEffectActive());
   });
   const snowSchedule = makeToggle(settings.snowSchedule, "Автоматически включать снег зимой");
   snowSchedule.input.addEventListener("change", async () => {
     settings.snowSchedule = snowSchedule.input.checked;
-    intensity.disabled = !isSnowEffectActive();
+    for (const slider of snowSliders) slider.disabled = !isSnowEffectActive();
     await saveSettings();
     setSnowEffect(isSnowEffectActive());
   });
@@ -1917,7 +1939,9 @@ function normalizeImportedSettings(source) {
     snowEnabled: Boolean(input.snowEnabled),
     snowAccumulation: input.snowAccumulation !== false,
     snowSchedule: Boolean(input.snowSchedule),
-    snowIntensity: ["soft", "normal", "dense"].includes(input.snowIntensity) ? input.snowIntensity : "normal",
+    snowDensity: Math.round(clamp(input.snowDensity, 0, 100,
+      input.snowIntensity === "soft" ? 15 : input.snowIntensity === "dense" ? 82 : DEFAULTS.snowDensity)),
+    snowWind: Math.round(clamp(input.snowWind, 0, 100, DEFAULTS.snowWind)),
     focusNote: String(input.focusNote || "").slice(0, 240),
     focusTasks: taskList.slice(0, 12).map((task) => ({ text: String(task?.text || "").trim().slice(0, 100), done: Boolean(task?.done) })).filter((task) => task.text)
   };
@@ -2352,9 +2376,9 @@ function snowSpriteSize(size) {
   return Math.max(3, Math.min(12, Math.round(size / 3) * 3));
 }
 
-function createSnowflakeSprite(size, crystalline, variant) {
+function createSnowflakeSprite(size, kind, variant) {
   const spriteSize = snowSpriteSize(size);
-  const cacheKey = 'powder-' + (crystalline ? 'crisp-' : 'soft-') + spriteSize + '-' + variant;
+  const cacheKey = kind + "-" + spriteSize + "-" + variant;
   if (snowSpriteCache.has(cacheKey)) return snowSpriteCache.get(cacheKey);
   const side = spriteSize + 6;
   const sprite = document.createElement("canvas"); sprite.width = sprite.height = side * 2;
@@ -2362,22 +2386,38 @@ function createSnowflakeSprite(size, crystalline, variant) {
   if (!context) return sprite;
   context.scale(2, 2);
   const center = side / 2, radius = spriteSize * .4;
-  // Irregular overlapping powder lobes rather than large star-shaped crystals.
-  const lobes = 5 + variant % 4;
-  for (let i = 0; i < lobes; i++) {
-    const angle = i * 2.39996 + variant * .73;
-    const offset = radius * (.12 + .45 * ((i * 7 + variant * 3) % 11) / 10);
-    const x = center + Math.cos(angle) * offset, y = center + Math.sin(angle) * offset;
-    const grain = radius * (.4 + .22 * ((i + variant) % 3));
-    const fade = context.createRadialGradient(x, y, 0, x, y, grain);
-    fade.addColorStop(0, crystalline ? "rgba(253,255,255,.88)" : "rgba(250,253,255,.66)");
-    fade.addColorStop(.42, "rgba(240,248,255,.46)");
-    fade.addColorStop(1, "rgba(230,242,255,0)");
-    context.fillStyle = fade; context.fillRect(x-grain, y-grain, grain*2, grain*2);
-  }
-  if (crystalline) {
-    context.fillStyle = "rgba(255,255,255,.7)";
-    context.beginPath(); context.ellipse(center, center, Math.max(.35,radius*.23), Math.max(.3,radius*.15), variant*.5, 0, Math.PI*2); context.fill();
+  if (kind === "crystal") {
+    context.strokeStyle = "rgba(245,252,255,.88)";
+    context.lineWidth = .6;
+    context.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3 + variant * .23;
+      const length = radius * (1 + (i + variant) % 3 * .08);
+      const x = Math.cos(angle), y = Math.sin(angle);
+      context.moveTo(center, center);
+      context.lineTo(center + x * length, center + y * length);
+      for (const side of [-1, 1]) {
+        context.moveTo(center + x * length * .57, center + y * length * .57);
+        context.lineTo(center + (x * .82 - side * y * .24) * length,
+          center + (y * .82 + side * x * .24) * length);
+      }
+    }
+    context.stroke();
+  } else {
+    const lobes = kind === "tuft" ? 5 + variant % 4 : 2 + variant % 2;
+    for (let i = 0; i < lobes; i++) {
+      const angle = i * 2.39996 + variant * .73;
+      const spread = kind === "tuft" ? .76 : .28;
+      const offset = radius * (.12 + spread * ((i * 7 + variant * 3) % 11) / 10);
+      const x = center + Math.cos(angle) * offset, y = center + Math.sin(angle) * offset;
+      const grain = radius * (.43 + .18 * ((i + variant) % 3));
+      const fade = context.createRadialGradient(x, y, 0, x, y, grain);
+      fade.addColorStop(0, "rgba(253,255,255,.87)");
+      fade.addColorStop(.5, "rgba(240,248,255,.47)");
+      fade.addColorStop(1, "rgba(230,242,255,0)");
+      context.fillStyle = fade;
+      context.fillRect(x - grain, y - grain, grain * 2, grain * 2);
+    }
   }
   snowSpriteCache.set(cacheKey, sprite);
   return sprite;
@@ -2387,7 +2427,7 @@ let snowDrifts = null;
 let snowSurfaceTime = 0;
 function syncSnowSurfaces(force = false) {
   if (!snowDrifts) return;
-  const suspended = !settings.snowAccumulation || reducedMotion.matches || document.body.classList.contains("layout-editing") || document.body.classList.contains("drawer-open") || document.body.classList.contains("idle-mode") || weatherPanelOpen;
+  const suspended = !settings.snowAccumulation || reducedMotion.matches || document.body.classList.contains("layout-editing") || document.body.classList.contains("idle-mode") || weatherPanelOpen;
   if (suspended) { snowDrifts.clear(); return; }
   const now = performance.now();
   if (!force && now - snowSurfaceTime < 200) return;
@@ -2405,30 +2445,39 @@ function syncSnowSurfaces(force = false) {
 }
 
 let snowWindTime = 0;
-function createSnowflakes() {
+function createSnowflakes(preserve = false) {
   if (!snowContext) return;
   const width = window.innerWidth, height = window.innerHeight;
-  const density = { soft: .55, normal: .9, dense: 1.3 }[settings.snowIntensity] || .9;
-  const count = Math.min(190, Math.max(28, Math.round(width * height / 10500 * density)));
-  snowflakes = Array.from({ length: count }, () => {
+  const scale = Math.max(.55, Math.min(1, Math.sqrt(width * height / 1_024_000)));
+  const count = Math.round((12 + 178 * (settings.snowDensity / 100) ** 1.15) * scale);
+  if (preserve && snowflakes.length > count) {
+    // Keep the existing depth mix while thinning the field.
+    const previous = snowflakes;
+    snowflakes = Array.from({ length: count }, (_, i) => previous[Math.floor(i * previous.length / count)]);
+  } else if (!preserve) {
+    snowflakes = [];
+  }
+  while (snowflakes.length < count) {
     const layer = Math.random();
-    const depth = layer < .68 ? .12 + Math.random() * .28 : layer < .93 ? .42 + Math.random() * .3 : .8 + Math.random() * .2;
-    const size = depth < .42 ? 1.1 + Math.random() * 1.7 : depth < .8 ? 2.5 + Math.random() * 2.8 : 6 + Math.random() * 4;
-    const crystalline = depth > .42 && depth < .8 && Math.random() < .22;
+    const depth = layer < .59 ? .12 + Math.random() * .28 : layer < .88 ? .42 + Math.random() * .3 : .8 + Math.random() * .2;
+    const kind = depth < .42 ? "grain" : Math.random() < .28 ? "crystal" : "tuft";
+    const size = kind === "crystal" ? 5 + Math.random() * 4 : depth < .42 ? 1.2 + Math.random() * 1.8
+      : depth < .8 ? 3 + Math.random() * 3.5 : 7 + Math.random() * 5;
     const spriteSize = snowSpriteSize(size);
-    return {
-      x: Math.random() * width, y: Math.random() * height, depth, size,
-      sprite: createSnowflakeSprite(size, crystalline, Math.floor(Math.random() * 8)),
+    snowflakes.push({
+      x: Math.random() * width, y: Math.random() * height, depth, size, kind,
+      sprite: createSnowflakeSprite(size, kind, Math.floor(Math.random() * 6)),
       spriteSide: (spriteSize + 6) * (size / spriteSize),
-      speed: .14 + depth * depth * 1.45 + Math.random() * .15,
-      drift: .12 + depth * .5,
+      speed: (.46 + depth ** 2 * 1.8 + Math.random() * .27) * (kind === "crystal" ? .73 : 1),
+      drift: .11 + depth * .65,
       phase: Math.random() * Math.PI * 2,
-      phaseRate: .004 + Math.random() * .007 + depth * .004,
+      phaseRate: .008 + Math.random() * .031,
       rotation: Math.random() * Math.PI * 2,
-      rotationSpeed: (Math.random() - .5) * (.002 + depth * .007),
-      alpha: depth < .42 ? .22 + Math.random() * .25 : depth < .8 ? .48 + Math.random() * .23 : .26 + Math.random() * .16
-    };
-  }).sort((a,b) => a.depth-b.depth);
+      rotationSpeed: (Math.random() - .5) * (.008 + depth * .029),
+      alpha: kind === "grain" ? .37 + Math.random() * .28 : .53 + Math.random() * .28
+    });
+  }
+  snowflakes.sort((a, b) => a.depth - b.depth);
 }
 
 function resizeSnowCanvas() {
@@ -2451,29 +2500,40 @@ function drawSnowflakes(delta, stationary = false) {
   snowContext.clearRect(0, 0, width, height);
   syncSnowSurfaces();
   if (!stationary) snowWindTime += delta * .01667;
-  const wind = .12 + Math.sin(snowWindTime * .17) * .22 + Math.sin(snowWindTime * .47 + 1.2) * .1;
+  const gust = Math.max(0, Math.sin(snowWindTime * .52 + .7));
+  const wind = (settings.snowWind / 100) ** 1.3 * (2.2 + Math.sin(snowWindTime * .21) * 1.1 + gust * gust * 2.6);
+  const canDeposit = snowDrifts?.surfaces.size && !document.body.classList.contains("drawer-open");
   for (const flake of snowflakes) {
+    let landed = false;
     if (!stationary) {
+      const previousX = flake.x;
       const previousY = flake.y;
       flake.phase += flake.phaseRate * delta;
-      flake.y += flake.speed * (1 + Math.sin(flake.phase * .8) * .12) * delta;
+      flake.y += flake.speed * (1 + Math.sin(flake.phase * .8) * (.08 + flake.depth * .1)) * delta;
       flake.x += (Math.sin(flake.phase) * flake.drift + wind * (.25 + flake.depth * 1.3)) * delta;
-      flake.rotation += flake.rotationSpeed * delta;
-      if (snowDrifts?.deposit(flake.x, previousY, flake.y, flake.size)) { flake.y = -flake.size; flake.x = Math.random() * width; }
+      if (flake.depth >= .42) flake.rotation += flake.rotationSpeed * delta;
+      if (canDeposit) landed = snowDrifts.deposit(previousX, previousY, flake.y, flake.size, flake.x);
       if (flake.y > height + flake.size) { flake.y = -flake.size; flake.x = Math.random() * width; }
       if (flake.x > width + flake.spriteSide) flake.x = -flake.spriteSide;
       if (flake.x < -flake.spriteSide) flake.x = width + flake.spriteSide;
     }
 
-    snowContext.save();
-    snowContext.translate(flake.x, flake.y);
-    snowContext.rotate(flake.rotation);
     const edgeFade = stationary ? 1 : Math.max(0, Math.min(1, (flake.y + flake.size) / 28, (height + flake.size - flake.y) / 36));
+    const halfSide = flake.spriteSide / 2;
     snowContext.globalAlpha = flake.alpha * edgeFade;
-    snowContext.drawImage(flake.sprite, -flake.spriteSide / 2, -flake.spriteSide / 2, flake.spriteSide, flake.spriteSide);
-    snowContext.restore();
+    if (flake.depth < .42) {
+      snowContext.drawImage(flake.sprite, flake.x - halfSide, flake.y - halfSide, flake.spriteSide, flake.spriteSide);
+    } else {
+      snowContext.save();
+      snowContext.translate(flake.x, flake.y);
+      snowContext.rotate(flake.rotation + Math.sin(flake.phase) * .18);
+      snowContext.drawImage(flake.sprite, -halfSide, -halfSide, flake.spriteSide, flake.spriteSide);
+      snowContext.restore();
+    }
+    if (landed) { flake.y = -flake.spriteSide; flake.x = Math.random() * width; }
   }
-  snowDrifts?.draw(stationary ? 0 : delta);
+  snowContext.globalAlpha = 1;
+  snowDrifts?.draw(stationary || document.body?.classList.contains("drawer-open") ? 0 : delta, wind);
 }
 
 function animateSnow(timestamp) {
@@ -2512,7 +2572,7 @@ function initializeSnowEffect() {
   snowContext = canvas?.getContext("2d", { alpha: true });
   snowDrifts = new SnowDrifts($("#snowDriftCanvas"));
   document.addEventListener("pointermove", event => {
-    if (isSnowEffectActive() && settings.snowAccumulation && !reducedMotion.matches && !document.hidden) snowDrifts.brush(event.clientX, event.clientY);
+    if (isSnowEffectActive() && settings.snowAccumulation && !reducedMotion.matches && !document.hidden && !document.body.classList.contains("drawer-open")) snowDrifts.brush(event.clientX, event.clientY, event.timeStamp);
   }, { passive: true });
   document.addEventListener("pointerleave", () => snowDrifts.forgetPointer());
   if (!snowContext) return;
@@ -2638,6 +2698,7 @@ function setupEvents() {
       if (snowFrame) cancelAnimationFrame(snowFrame);
       snowFrame = 0;
       snowLastFrame = 0;
+      snowDrifts?.forgetPointer();
     } else {
       resetIdleTimer(true);
       scheduleWallpaperVideo();

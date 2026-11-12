@@ -187,18 +187,33 @@ const server = http.createServer((req, res) => {
     await page.screenshot({animations:'disabled',path:path.join(root,'.test-artifacts','snow-before-brush.png')});
     const profileBefore=await page.evaluate(()=>Array.from(snowDrifts.surfaces.get('[data-layout-item="weather"]').heights));
     await page.mouse.move(ledge.x+ledge.width*.42,ledge.y-4);
-    await page.mouse.move(ledge.x+ledge.width*.58,ledge.y-4,{steps:8});
+    for (let i=1;i<=8;i++) {
+      await page.waitForTimeout(30);
+      await page.mouse.move(ledge.x+ledge.width*(.42+.02*i),ledge.y-4);
+    }
     const stirred=await page.evaluate(()=>({profile:Array.from(snowDrifts.surfaces.get('[data-layout-item="weather"]').heights),debris:snowDrifts.debris.length}));
     assert.equal(stirred.debris,0,'center stirring does not spawn falling snow');
     assert.ok(Math.abs(stirred.profile.reduce((a,b)=>a+b,0)-loadedSnow)<loadedSnow*.02,'center stirring preserves snow volume');
     assert.notDeepEqual(stirred.profile,profileBefore,'center motion reshapes snow');
     await page.screenshot({animations:'disabled',path:path.join(root,'.test-artifacts','snow-stirred.png')});
-    await page.evaluate(()=>snowDrifts.forgetPointer());
+    const powder=await page.evaluate(rect=>{
+      snowDrifts.forgetPointer();
+      for (const [fraction, timeStamp] of [[.45,100],[.6,108]]) {
+        const event=new PointerEvent('pointermove',{clientX:rect.x+rect.width*fraction,clientY:rect.y-4});
+        Object.defineProperty(event,'timeStamp',{value:timeStamp});
+        document.dispatchEvent(event);
+      }
+      snowDrifts.forgetPointer();
+      return snowDrifts.debris.filter(p=>p.powder).length;
+    },ledge);
+    assert.ok(powder>0 && powder<=5,'rapid pointer contact raises a small puff');
     await page.mouse.move(ledge.x-25,ledge.y-4);
     await page.mouse.move(ledge.x+ledge.width+25,ledge.y-4,{steps:16});
-    const brushed=await page.evaluate(()=>({mass:snowDrifts.surfaces.get('[data-layout-item="weather"]').heights.reduce((a,b)=>a+b,0),debris:snowDrifts.debris.length}));
+    const brushed=await page.evaluate(()=>({mass:snowDrifts.surfaces.get('[data-layout-item="weather"]').heights.reduce((a,b)=>a+b,0),debris:snowDrifts.debris.length,spills:snowDrifts.spills.length}));
     assert.ok(brushed.mass<loadedSnow*.03,'one pointer sweep pushes the whole bank off the ledge '+JSON.stringify({loadedSnow,brushed}));
-    assert.ok(brushed.debris>0 && brushed.debris<=140,'brush spawns bounded falling fragments');
+    assert.ok(brushed.spills>0 && brushed.spills<=12,'brush creates a stream from the ledge');
+    assert.ok(brushed.debris<=140,'falling fragments stay bounded');
+    assert.equal(await page.locator('#buildSnowman').count(),0);
     await page.screenshot({animations:'disabled',path:path.join(root,'.test-artifacts','snow-after-brush.png')});
     assert.equal(await page.locator('#snowDriftCanvas').evaluate(el=>getComputedStyle(el).pointerEvents),'none');
     await page.locator('.weather-card').click();
@@ -210,6 +225,22 @@ const server = http.createServer((req, res) => {
     await page.evaluate(()=>{settings.snowAccumulation=true;});
     await page.emulateMedia({reducedMotion:'reduce'});
     await page.waitForFunction(()=>snowDrifts.surfaces.size===0);
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.locator('#openGeneralSettings').click();
+    await page.getByRole('button',{name:'Внешний вид',exact:true}).click();
+    const density=page.getByRole('slider',{name:'Плотность снега'});
+    const wind=page.getByRole('slider',{name:'Сила ветра'});
+    await density.scrollIntoViewIfNeeded({timeout:5000});
+    assert.equal(await density.isEnabled(),true);
+    await density.press('Home');
+    const sparse=await page.evaluate(()=>snowflakes.length);
+    await density.press('End');
+    assert.ok(await page.evaluate(()=>snowflakes.length)>sparse*10,'density slider changes the live flake count');
+    await wind.focus({timeout:5000});
+    await wind.press('End');
+    assert.equal(await page.evaluate(()=>settings.snowWind),100);
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('yunagi-settings')).snowWind===100);
+    await page.locator('#closeDrawer').click();
     await page.evaluate(()=>{settings.snowEnabled=false;setSnowEffect(false);});
     assert.equal(await page.evaluate(()=>snowDrifts.debris.length),0);
 
