@@ -992,7 +992,7 @@ body.drawer-open .settings-drawer {
 .drawer-body {
   display: grid;
   flex: 1;
-  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-columns: 188px minmax(0, 1fr);
   min-height: 0;
 }
 .drawer-nav {
@@ -1106,7 +1106,9 @@ body.drawer-open .settings-drawer {
   color: var(--muted);
   font-size: var(--fs-label);
 }
-.setting-value { min-width: 42px; color: rgba(255, 255, 255, .78); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.setting-range { display: flex; align-items: center; gap: 10px; }
+.setting-range input:disabled { opacity: .4; cursor: default; }
+.setting-value { min-width: 4ch; color: rgba(255, 255, 255, .78); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .setting-control select,
 .setting-control input[type="text"],
@@ -1440,17 +1442,18 @@ body.layout-editing .bookmark-item { cursor: default; }
   .layout-trigger { right: calc(var(--gutter-x) + 100px); }
   .focus-panel { padding: 22px 20px 20px; }
   .settings-drawer { width: calc(100vw - 20px); height: calc(100dvh - 20px); }
-  /* На узких экранах боковая навигация превращается в ленту чипов сверху */
+  /* На узких экранах все разделы видны над содержимым. */
   .drawer-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .drawer-nav {
-    flex-direction: row;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
     padding: 4px 14px 10px;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, .08);
     overflow-x: auto;
   }
-  .drawer-nav-item { flex: 0 0 auto; padding: 9px 13px; }
+  .drawer-nav-item { justify-content: center; gap: 6px; padding: 9px 7px; text-align: center; }
   .drawer-topline { padding: 20px 20px 13px; }
   .drawer-scroll { padding: 8px 20px 24px; }
   .drawer-title { font-size: 24px; }
@@ -1493,9 +1496,6 @@ body.layout-editing .bookmark-item { cursor: default; }
 [data-layout-item][hidden] { display: none !important; }
 
 .bookmark-item { text-decoration: none; }
-.settings-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
-.settings-tabs [aria-pressed="true"] { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); }
-.settings-category[hidden] { display: none; }
 .weather-icon svg, #idleWeatherIcon svg, .weather-panel-hour-icon svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
 
 .wallpaper-preview { height: 150px; margin: 16px 0; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; background-size: cover; cursor: crosshair; touch-action: none; }
@@ -1597,10 +1597,7 @@ body.layout-editing .bookmark-item { cursor: default; }
 
 /* Favorites editor: one site per card, secondary controls stay folded away. */
 .bookmark-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 12px; }
-.bookmark-list-heading h2 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.02em; }
 .bookmark-list-heading > span { padding: 4px 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 20px; font-size: 11px; color: var(--muted); }
-.bookmark-add-row { margin: 0 0 16px; }
-.bookmark-add-row .drawer-button { width: 100%; border-style: dashed; background: rgba(255,255,255,.025); }
 .bookmark-edit-item { padding: 16px; margin-bottom: 12px; border-radius: 18px; background: rgba(255,255,255,.025); border-color: rgba(255,255,255,.08); }
 .bookmark-edit-row { display: grid; grid-template-columns: 44px minmax(0,1fr) 30px; align-items: center; gap: 14px; margin: 0; }
 .bookmark-editor-preview { display: grid; place-items: center; width: 44px; height: 44px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: linear-gradient(145deg, color-mix(in srgb,var(--bookmark-color) 22%,#25282d),#15171b); color: white; font-size: 19px; }
@@ -1614,7 +1611,7 @@ body.layout-editing .bookmark-item { cursor: default; }
 .bookmark-editor-controls :is(.bookmark-tool-button,.remove-bookmark):hover:not(:disabled) { background: rgba(255,255,255,.08); }
 .bookmark-editor-controls .remove-bookmark:hover { color: #ffb4b4; }
 .bookmark-icon-details { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 10px; }
-.bookmark-icon-details summary, .bookmark-appearance-details > summary { color: var(--muted); font-size: 11px; cursor: pointer; padding: 4px 0; }
+.bookmark-icon-details summary { color: var(--muted); font-size: 11px; cursor: pointer; padding: 4px 0; }
 .bookmark-details-hint { display: block; padding: 5px 0 0 14px; font-size: 10px; color: var(--faint); }
 .bookmark-icon-details[open] summary { margin-bottom: 14px; }
 .bookmark-icon-details[open] .bookmark-details-hint { display: none; }
@@ -1622,9 +1619,6 @@ body.layout-editing .bookmark-item { cursor: default; }
 .bookmark-icon-field { display: flex; flex-direction: column; gap: 6px; }
 .bookmark-icon-field input[type="text"] { width: 76px; flex: none; }
 .bookmark-edit-tools .bookmark-tool-button { height: 34px; background: rgba(255,255,255,.035); }
-.bookmark-appearance-details { border-top: 1px solid rgba(255,255,255,.09); padding-top: 16px; margin-top: 22px; }
-.bookmark-appearance-details > summary { font-size: 12px; }
-.bookmark-appearance-details[open] > summary { margin-bottom: 12px; }
 @media (max-width: 480px) {
   .bookmark-edit-item { padding: 12px; }
   .bookmark-edit-row { grid-template-columns: 34px minmax(0,1fr) 26px; gap: 9px; }
@@ -1654,6 +1648,9 @@ body.layout-editing .bookmark-item { cursor: default; }
 .bookmark-context-menu button:last-child { color: #f1abab; }
 .toast { display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 24px); }
 .toast-undo { border: 0; background: transparent; padding: 5px 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.settings-services { display: grid; gap: 5px; margin: 14px 0; }
+.settings-services dt { font-size: 13px; color: var(--text); }
+.settings-services dd { margin: 0 0 9px; }
 .city-control { display: grid; gap: 10px; margin: 16px 0; }
 .city-control > input { width: 100%; }
 .city-status { color: var(--muted); font-size: 11px; line-height: 1.6; }
@@ -1670,7 +1667,19 @@ body.layout-editing .bookmark-item { cursor: default; }
 :root[data-surface="clear"] .weather-panel { background-color: rgba(20,24,30,.84); }
 :root[data-surface="frosted"] .weather-panel { background-color: rgba(49,53,60,.86); }
 @media (max-width: 700px) { .layout-edit-bar { width: calc(100vw - 24px); grid-template-columns: 1fr; gap: 12px; } .editor-actions { flex-wrap: wrap; } .editor-key-hint { display: none; } }
-@media (max-width: 480px) { .setting-row { align-items: flex-start; gap: 12px; } .setting-control { max-width: 100%; } .setting-control select { max-width: 100%; } }
+@media (max-width: 480px) {
+  .drawer-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .drawer-nav-item { min-height: 34px; font-size: 12px; }
+  .drawer-nav-icon { display: none; }
+  .setting-row { gap: 12px; }
+  .setting-control { min-width: 0; max-width: 100%; }
+  .setting-row-wide { align-items: stretch; flex-direction: column; gap: 9px; }
+  .setting-row-wide .setting-control,
+  .setting-row-wide .setting-control select,
+  .setting-range { width: 100%; }
+  .setting-range input { width: 100%; min-width: 0; }
+  .setting-control .drawer-button { white-space: normal; }
+}
 @media (prefers-reduced-motion: reduce) { .weather-dialog-button.is-refreshing svg { animation: none; } }
 .toast.visible { pointer-events: auto; }
 
@@ -1681,7 +1690,3 @@ body.focus-mode [data-layout-item] { opacity: 0; pointer-events: none; }
 @media (max-width: 480px) { .focus-panel { padding: 20px; } .focus-panel h1 { font-size: 23px; } }
 
 .snow-drift-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; }
-
-.snow-slider { display: flex; align-items: center; gap: 9px; }
-.snow-slider input { width: clamp(78px, 22vw, 150px); }
-.snow-slider output { min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }

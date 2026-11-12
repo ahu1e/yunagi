@@ -45,12 +45,30 @@ const server = http.createServer((req, res) => {
     await page.getByRole('searchbox',{name:'Найти город'}).fill('Париж');
     await page.locator('.city-result').filter({hasText:'Техас'}).click();
     await page.waitForFunction(()=>settings.cityLocation?.longitude === -95.55);
-    await page.locator('#drawerNav button').filter({hasText:'Общие'}).click();
-    await page.getByRole('button',{name:'Внешний вид',exact:true}).click();
+    await page.getByRole('button',{name:'Оформление',exact:true}).click();
     for(const theme of ['metal','frosted','clear']) {
       await page.locator(`[data-surface-choice="${theme}"]`).click();
       assert.equal(await page.locator('html').getAttribute('data-surface'),theme);
     }
+    const nav=page.locator('#drawerNav');
+    await nav.getByRole('button',{name:'Фон',exact:true}).click();
+    const crop=page.getByRole('combobox',{name:'Кадрирование'});
+    const vertical=page.getByRole('slider',{name:'Вертикальное положение'});
+    await crop.selectOption('center 35%');
+    assert.equal(await vertical.inputValue(),'35');
+    await vertical.press('End');
+    assert.equal(await crop.inputValue(),'custom');
+    assert.equal(await page.locator('.wallpaper-preview').evaluate(el=>el.style.backgroundPosition),'50% 100%');
+    await crop.selectOption('center');
+    await nav.getByRole('button',{name:'Часы и дата',exact:true}).click();
+    assert.equal(await page.getByRole('combobox',{name:'Формат времени'}).count(),1);
+    assert.equal(await page.getByRole('combobox',{name:'Часы при бездействии'}).count(),1);
+    await nav.getByRole('button',{name:'Вкладка',exact:true}).click();
+    await page.getByRole('button',{name:'Открыть конструктор'}).click();
+    await page.locator('#layoutEditBar').waitFor({state:'visible'});
+    await page.locator('#cancelLayoutEdit').click();
+    await page.locator('#openGeneralSettings').click();
+    assert.equal(await page.locator('#drawerTitle').textContent(),'Вкладка');
     await page.locator('#closeDrawer').click();
     fs.mkdirSync(path.join(root,'.test-artifacts'),{recursive:true});
     for (const theme of ['metal','frosted','clear']) {
@@ -84,7 +102,7 @@ const server = http.createServer((req, res) => {
     await page.getByRole('button',{name:'Вернуть',exact:true}).click();
     assert.equal(await page.locator('#bookmarkGrid a').count(),6);
     await page.locator('#openGeneralSettings').click();
-    await page.getByRole('button',{name:'Данные и приватность',exact:true}).click();
+    await page.getByRole('button',{name:'Данные',exact:true}).click();
     const downloadPromise=page.waitForEvent('download');
     await page.getByRole('button',{name:'↓  Экспортировать настройки',exact:true}).click();
     const download=await downloadPromise;
@@ -98,9 +116,15 @@ const server = http.createServer((req, res) => {
     for(const viewport of [{width:1440,height:900},{width:800,height:600},{width:390,height:720}]) {
       await page.setViewportSize(viewport);
       await page.locator('#openGeneralSettings').click();
-      for(const kind of ['Общие','Погода','Часы и дата','Избранное']) {
-        await page.locator('#drawerNav button').filter({hasText:kind}).click();
+      for(const kind of ['Вкладка','Оформление','Фон','Снег','Погода','Часы и дата','Избранное','Данные']) {
+        const item=page.locator('#drawerNav').getByRole('button',{name:kind,exact:true});
+        await item.click();
+        assert.equal(await item.getAttribute('aria-current'),'page');
+        assert.equal(await page.locator('#drawerTitle').textContent(),kind);
         assert.ok(await page.evaluate(()=>{const p=document.querySelector('#drawerContent');return p.scrollWidth <= p.clientWidth+1}),'settings fit '+kind+' '+viewport.width);
+        if (['Вкладка','Снег','Оформление'].includes(kind)) {
+          await page.screenshot({animations:'disabled',path:path.join(root,'.test-artifacts',`settings-${kind}-${viewport.width}.png`)});
+        }
       }
       await page.screenshot({animations:"disabled",path:path.join(root,'.test-artifacts',`settings-${viewport.width}.png`)});
       await page.locator('#closeDrawer').click();
@@ -227,7 +251,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(()=>snowDrifts.surfaces.size===0);
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.locator('#openGeneralSettings').click();
-    await page.getByRole('button',{name:'Внешний вид',exact:true}).click();
+    await page.getByRole('button',{name:'Снег',exact:true}).click();
     const density=page.getByRole('slider',{name:'Плотность снега'});
     const wind=page.getByRole('slider',{name:'Сила ветра'});
     await density.scrollIntoViewIfNeeded({timeout:5000});

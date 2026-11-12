@@ -1375,7 +1375,29 @@ function makeRow(label, help, control) {
   const controlWrap = el("span", "setting-control");
   controlWrap.append(control);
   row.append(copy, controlWrap);
+  if (control.matches("select, .setting-range")) row.classList.add("setting-row-wide");
   return row;
+}
+
+function makeRangeRow(label, help, { min, max, step = 1, value, onInput }) {
+  const range = document.createElement("input");
+  range.type = "range";
+  range.min = min;
+  range.max = max;
+  range.step = step;
+  range.setAttribute("aria-label", label);
+  const output = el("output", "setting-value");
+  output.setAttribute("aria-hidden", "true");
+  const updateValue = () => {
+    output.textContent = range.value + "%";
+    range.setAttribute("aria-valuetext", output.textContent);
+  };
+  const setValue = value => { range.value = value; updateValue(); };
+  setValue(value);
+  range.addEventListener("input", () => { updateValue(); onInput(range.valueAsNumber); });
+  const control = el("span", "setting-range");
+  control.append(range, output);
+  return { row: makeRow(label, help, control), range, setValue };
 }
 
 function makeSelect(options, value) {
@@ -1406,7 +1428,7 @@ function makeToggle(checked, ariaLabel) {
 
 let drawerReturnFocus = null;
 
-function openDrawer(kind = "general") {
+function openDrawer(kind = drawerKind) {
   if (!document.body.classList.contains("drawer-open")) drawerReturnFocus = document.activeElement;
   snowDrifts?.forgetPointer();
   $(".canvas").inert = true;
@@ -1414,8 +1436,9 @@ function openDrawer(kind = "general") {
   clearTimeout(idleTimer);
   idleTimer = 0;
   hideIdleClock();
+  const switched = kind !== drawerKind;
   drawerKind = kind;
-  renderDrawer();
+  renderDrawer(switched);
   document.body.classList.add("drawer-open");
   $("#settingsDrawer").setAttribute("aria-hidden", "false");
   setTimeout(() => { if (document.body.classList.contains("drawer-open")) $("#closeDrawer").focus(); }, 60);
@@ -1431,52 +1454,58 @@ function closeDrawer() {
   resetIdleTimer(true);
 }
 
-// Разделы настроек: иконки — маленькие stroke-SVG, чтобы навигация смотрелась
-// аккуратно в боковой панели. Порядок = порядок в панели.
 const DRAWER_PAGES = [
   {
     kind: "general",
-    label: "Общие",
+    label: "Вкладка",
+    render: renderTabSettings,
     icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9-2-.6-2 3.5 1.5 1.6v2.8L2.4 15l2 3.5 2-.6 2 .9L9 21h4l.6-2.2 2-.9 2 .6 2-3.5-1.5-1.6v-2.8L19.6 9l-2-3.5-2 .6-2-.9L13 3Z" transform="translate(1 0)"/><circle cx="12" cy="12" r="3.2"/></svg>'
   },
-  { kind: "weather", label: "Погода", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.5h9.3a3.7 3.7 0 0 0 .6-7.35A5.4 5.4 0 0 0 6.3 11.6 3.4 3.4 0 0 0 7 17.5Z"></path></svg>' },
-  { kind: "clock", label: "Часы и дата", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"></circle><path d="M12 7.4V12l3.2 1.9"></path></svg>' },
-  { kind: "bookmarks", label: "Избранное", icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4.6 2.2 4.7 5.1.65-3.75 3.55.95 5.05L12 16.1l-4.5 2.45.95-5.05L4.7 9.95l5.1-.65L12 4.6Z"></path></svg>' }
+  { kind: "appearance", label: "Оформление", render: renderAppearanceSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18m-12 0v9"/></svg>' },
+  { kind: "background", label: "Фон", render: renderBackgroundSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><path d="m3 16 4-4 3 3 4-5 7 7"/></svg>' },
+  { kind: "snow", label: "Снег", render: renderSnowSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M4.2 7.5l15.6 9m0-9-15.6 9M9 5l3 3 3-3m-6 14 3-3 3 3"/></svg>' },
+  { kind: "weather", label: "Погода", render: renderWeatherSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.5h9.3a3.7 3.7 0 0 0 .6-7.35A5.4 5.4 0 0 0 6.3 11.6 3.4 3.4 0 0 0 7 17.5Z"></path></svg>' },
+  { kind: "clock", label: "Часы и дата", render: renderClockSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"></circle><path d="M12 7.4V12l3.2 1.9"></path></svg>' },
+  { kind: "bookmarks", label: "Избранное", render: renderBookmarkSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4.6 2.2 4.7 5.1.65-3.75 3.55.95 5.05L12 16.1l-4.5 2.45.95-5.05L4.7 9.95l5.1-.65L12 4.6Z"></path></svg>' },
+  { kind: "data", label: "Данные", render: renderDataSettings, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16v11H4zM3 4h18v4H3zm7 8h4"/></svg>' }
 ];
 
-function renderDrawer() {
+function renderDrawer(resetScroll = false) {
   const nav = $("#drawerNav");
-  nav.replaceChildren();
-  for (const page of DRAWER_PAGES) {
-    const button = el("button", "drawer-nav-item");
-    button.type = "button";
-    const active = drawerKind === page.kind;
+  if (!nav.childElementCount) {
+    for (const page of DRAWER_PAGES) {
+      const button = el("button", "drawer-nav-item");
+      button.type = "button";
+      button.dataset.section = page.kind;
+      button.setAttribute("aria-controls", "drawerContent");
+      const icon = el("span", "drawer-nav-icon");
+      icon.innerHTML = page.icon;
+      button.append(icon, el("span", "", page.label));
+      button.addEventListener("click", () => {
+        if (drawerKind === page.kind) return;
+        drawerKind = page.kind;
+        renderDrawer(true);
+      });
+      nav.append(button);
+    }
+  }
+  for (const button of nav.children) {
+    const active = drawerKind === button.dataset.section;
     button.classList.toggle("is-active", active);
     if (active) button.setAttribute("aria-current", "page");
-    const icon = el("span", "drawer-nav-icon");
-    icon.innerHTML = page.icon;
-    button.append(icon, el("span", "", page.label));
-    button.addEventListener("click", () => {
-      if (drawerKind === page.kind) return;
-      drawerKind = page.kind;
-      renderDrawer();
-    });
-    nav.append(button);
+    else button.removeAttribute("aria-current");
   }
   const content = $("#drawerContent");
+  const scroll = content.scrollTop;
   content.replaceChildren();
-  content.scrollTop = 0;
-  if (drawerKind === "weather") renderWeatherSettings(content);
-  else if (drawerKind === "clock") renderClockSettings(content);
-  else if (drawerKind === "bookmarks") renderBookmarkSettings(content);
-  else renderGeneralSettings(content);
+  DRAWER_PAGES.find(page => page.kind === drawerKind).render(content);
+  content.scrollTop = resetScroll ? 0 : scroll;
 }
 
-function renderGeneralSettings(content) {
-  content.append(...drawerHeading("Твоё пространство", "Настрой новую вкладку так, чтобы она ощущалась именно твоей."));
-
-  const presets = makeSection("БЫСТРАЯ НАСТРОЙКА");
-  presets.append(el("p", "setting-help", "Пресет меняет видимость и оформление виджетов. Свои сайты и обои сохраняются."));
+function renderTabSettings(content) {
+  content.append(...drawerHeading("Вкладка", "Управляй блоками на странице и настрой поиск."));
+  const presets = makeSection("Готовые варианты");
+  presets.append(el("p", "setting-help", "Готовые варианты меняют видимость и оформление виджетов. Свои сайты и обои сохраняются."));
   const presetButtons = el("div", "button-row");
   const choices = [
     ["Минимализм", { hiddenWidgets: ["weather", "bookmarks", "date"], clockDisplay: "digital", showCaption: false, iconStyle: "mono" }],
@@ -1496,7 +1525,7 @@ function renderGeneralSettings(content) {
     presetButtons.append(button);
   }
   presets.append(presetButtons);
-  const widgets = makeSection("ВИДЖЕТЫ НА ВКЛАДКЕ");
+  const widgets = makeSection("Виджеты на вкладке");
   for (const [key, label] of [["weather", "Погода"], ["bookmarks", "Избранное"], ["date", "Дата"], ["clock", "Часы"], ["search", "Поиск"]]) {
     const toggle = makeToggle(!settings.hiddenWidgets?.includes(key), "Показывать: " + label);
     toggle.input.addEventListener("change", () => {
@@ -1510,9 +1539,32 @@ function renderGeneralSettings(content) {
     });
     widgets.append(makeRow(label, "", toggle.label));
   }
-  content.append(widgets);
+  const arrangement = makeSection("Расположение");
+  const layoutMode = makeSelect([["free", "Блоки независимо"], ["stack", "Одна вертикальная колонка слева"], ["custom", "Мой макет по сетке"]], settings.layoutMode || "free");
+  layoutMode.addEventListener("change", () => setLayoutMode(layoutMode.value));
+  arrangement.append(makeRow("Макет", "Выбери расположение виджетов на вкладке.", layoutMode));
+  const editLayout = el("button", "drawer-button", "Открыть конструктор");
+  editLayout.type = "button";
+  editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
+  arrangement.append(makeRow("Ручная настройка", "Перемещай и меняй размеры блоков.", editLayout));
+  const behavior = makeSection("Поиск");
+  const engine = makeSelect(Object.entries(ENGINES).map(([key, item]) => [key, item.label]), settings.engine);
+  engine.addEventListener("change", () => { settings.engine = engine.value; updateEngineButton(); saveSettings(); });
+  behavior.append(makeRow("Поисковая система", "Используется для поиска из строки на странице.", engine));
+  const captionToggle = makeToggle(settings.showCaption !== false, "Показывать подпись под строкой поиска");
+  captionToggle.input.addEventListener("change", async () => {
+    settings.showCaption = captionToggle.input.checked;
+    renderAppearance();
+    await saveSettings();
+  });
+  behavior.append(makeRow("Подпись под поиском", "Показывать сменную фразу под полем поиска.", captionToggle.label));
+  content.append(arrangement, widgets, behavior, presets);
+}
 
-  const visual = makeSection("ФОН И АТМОСФЕРА");
+function renderAppearanceSettings(content) {
+  content.append(...drawerHeading("Оформление", "Настрой поверхности виджетов и цвет интерфейса."));
+
+  const visual = makeSection("Поверхности виджетов");
   const surfaces = el("div", "surface-options");
   surfaces.setAttribute("role", "group"); surfaces.setAttribute("aria-label", "Оформление виджетов");
   for (const [value, label, description] of [["metal", "Жидкий металл", "Тёмная поверхность и металлические блики"], ["frosted", "Матовое стекло", "Мягкое размытие и рассеянный свет"], ["clear", "Прозрачное стекло", "Лёгкая подложка, больше обоев"]]) {
@@ -1528,41 +1580,12 @@ function renderGeneralSettings(content) {
     surfaces.append(button);
   }
   visual.append(surfaces);
-  const brightness = document.createElement("input");
-  brightness.type = "range"; brightness.min = "35"; brightness.max = "120"; brightness.value = String(settings.brightness);
-  const brightnessValue = el("span", "setting-value", `${settings.brightness}%`);
-  brightness.addEventListener("input", () => { settings.brightness = Number(brightness.value); brightnessValue.textContent = `${brightness.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
-  const brightnessControl = el("span", "setting-control"); brightnessControl.append(brightness, brightnessValue);
-  const brightnessRow = makeRow("Яркость", "Настрой читаемость фонового изображения.", document.createElement("span"));
-  brightnessRow.lastElementChild.replaceWith(brightnessControl);
-  visual.append(brightnessRow);
+  content.append(visual);
 
-  const shade = document.createElement("input");
-  shade.type = "range"; shade.min = "0"; shade.max = "60"; shade.value = String(settings.shade);
-  const shadeValue = el("span", "setting-value", `${settings.shade}%`);
-  shade.addEventListener("input", () => { settings.shade = Number(shade.value); shadeValue.textContent = `${shade.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
-  const shadeControl = el("span", "setting-control"); shadeControl.append(shade, shadeValue);
-  const shadeRow = makeRow("Затемнение", "Мягкая вуаль для контраста виджетов.", document.createElement("span"));
-  shadeRow.lastElementChild.replaceWith(shadeControl);
-  visual.append(shadeRow);
-
-  const scale = document.createElement("input");
-  scale.type = "range"; scale.min = "85"; scale.max = "130"; scale.value = String(settings.scale);
-  const scaleValue = el("span", "setting-value", `${settings.scale}%`);
-  scale.addEventListener("input", () => { settings.scale = Number(scale.value); scaleValue.textContent = `${scale.value}%`; applyAppearanceVars(); scheduleSaveSettings(); });
-  const scaleControl = el("span", "setting-control"); scaleControl.append(scale, scaleValue);
-  const scaleRow = makeRow("Масштаб", "Подстрой кадрирование обоев.", document.createElement("span"));
-  scaleRow.lastElementChild.replaceWith(scaleControl);
-  visual.append(scaleRow);
-
-  const position = makeSelect([["center", "По центру"], ["center 35%", "Выше"], ["center 65%", "Ниже"], ["left center", "Слева"], ["right center", "Справа"]], settings.position);
-  position.addEventListener("change", () => { settings.position = position.value; renderAppearance(); saveSettings(); });
-  visual.append(makeRow("Положение", "Точка фокуса фонового изображения.", position));
-
+  const theme = makeSection("Цвет интерфейса");
   const accent = makeSelect([["snow", "Снежный"], ["ice", "Ледяной"], ["lavender", "Лавандовый"], ["rose", "Розовый рассвет"], ["moss", "Мох" ]], settings.accent);
   accent.disabled = settings.themeMode !== "manual";
   accent.addEventListener("change", () => { settings.accent = accent.value; renderAppearance(); saveSettings(); });
-  visual.append(makeRow("Оттенок интерфейса", "Тонкие акценты и детали.", accent));
   const themeMode = makeSelect([["manual", "Вручную"], ["time", "По времени суток"], ["season", "По сезону"]], settings.themeMode);
   themeMode.addEventListener("change", () => {
     settings.themeMode = themeMode.value;
@@ -1570,10 +1593,18 @@ function renderGeneralSettings(content) {
     updateTheme();
     saveSettings();
   });
-  visual.append(makeRow("Автоматическая тема", "Цветовые акценты меняются сами.", themeMode));
-  content.append(visual);
+  theme.append(
+    makeRow("Смена оттенка", "", themeMode),
+    makeRow("Оттенок интерфейса", "Доступно при ручном выборе оттенка.", accent)
+  );
+  content.append(theme);
 
-  const wallpaperSection = makeSection("СВОИ ОБОИ");
+}
+
+function renderBackgroundSettings(content) {
+  content.append(...drawerHeading("Фон", "Выбери обои и настрой кадрирование."));
+
+  const wallpaperSection = makeSection("Изображение");
   const fileInput = document.createElement("input");
   fileInput.type = "file"; fileInput.accept = "image/jpeg,image/png,image/webp"; fileInput.hidden = true;
   fileInput.addEventListener("change", () => {
@@ -1594,7 +1625,16 @@ function renderGeneralSettings(content) {
   const upload = el("button", "drawer-button", "＋  Выбрать изображение");
   upload.type = "button"; upload.addEventListener("click", () => fileInput.click());
   const reset = el("button", "drawer-button", "Вернуть исходные обои");
-  reset.type = "button"; reset.addEventListener("click", async () => { settings.customWallpaper = ""; renderAppearance(); await saveSettings({ includeMedia: true }); showToast("Исходные обои восстановлены"); });
+  reset.type = "button";
+  reset.disabled = !settings.customWallpaper;
+  reset.addEventListener("click", async () => {
+    settings.customWallpaper = "";
+    preview.style.backgroundImage = 'url("Image.webp")';
+    reset.disabled = true;
+    renderAppearance();
+    await saveSettings({ includeMedia: true });
+    showToast("Исходные обои восстановлены");
+  });
   const wallpaperButtons = el("div", "button-row"); wallpaperButtons.append(upload, reset, fileInput);
   wallpaperSection.append(el("p", "setting-help", "Изображение хранится только в настройках расширения. Поддерживаются JPG, PNG и WebP."), wallpaperButtons);
   const preview = el("div", "wallpaper-preview");
@@ -1602,19 +1642,29 @@ function renderGeneralSettings(content) {
   preview.setAttribute("aria-label", "Предпросмотр кадрирования обоев");
   preview.style.backgroundImage = settings.customWallpaper ? 'url("' + settings.customWallpaper + '")' : 'url("Image.webp")';
   preview.style.backgroundPosition = settings.position;
-  const point = el("input", "wallpaper-position");
-  point.type = "range"; point.min = "0"; point.max = "100";
-  point.setAttribute("aria-label", "Вертикальная точка фокуса обоев");
-  const match = /^50% (\d+)%$/.exec(settings.position);
-  point.value = match ? match[1] : "50";
+  const positions = [["center", "По центру"], ["center 35%", "Выше"], ["center 65%", "Ниже"], ["left center", "Слева"], ["right center", "Справа"], ["custom", "Вручную"]];
+  const selectPosition = makeSelect(positions, "center");
+  const verticalPosition = () => Number(/(\d+)%$/.exec(settings.position)?.[1] ?? 50);
   const setPosition = (value) => {
-    point.value = String(value);
     settings.position = "50% " + value + "%";
+    selectPosition.value = "custom";
+    crop.setValue(value);
     preview.style.backgroundPosition = settings.position;
     renderAppearance();
     scheduleSaveSettings();
   };
-  point.addEventListener("input", () => setPosition(Number(point.value)));
+  const crop = makeRangeRow("Вертикальное положение", "Можно перетащить изображение в предпросмотре.", {
+    min: 0, max: 100, value: verticalPosition(), onInput: setPosition
+  });
+  selectPosition.value = positions.some(([value]) => value === settings.position) ? settings.position : "custom";
+  selectPosition.addEventListener("change", () => {
+    if (selectPosition.value === "custom") { setPosition(verticalPosition()); return; }
+    settings.position = selectPosition.value;
+    crop.setValue(verticalPosition());
+    preview.style.backgroundPosition = settings.position;
+    renderAppearance();
+    saveSettings();
+  });
   preview.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -1624,10 +1674,21 @@ function renderGeneralSettings(content) {
     preview.onpointermove = move;
     preview.onpointerup = preview.onpointercancel = () => { preview.onpointermove = null; };
   });
-  wallpaperSection.append(preview, makeRow("Кадрирование", "Перетаскивай точку фокуса на превью или используй ползунок.", point));
+  wallpaperSection.append(preview, makeRow("Кадрирование", "", selectPosition), crop.row);
+  for (const [key, label, min, max] of [
+    ["brightness", "Яркость", 35, 120], ["shade", "Затемнение", 0, 60], ["scale", "Масштаб", 85, 130],
+  ]) {
+    wallpaperSection.append(makeRangeRow(label, "", {
+      min, max, value: settings[key], onInput: value => {
+        settings[key] = value;
+        applyAppearanceVars();
+        scheduleSaveSettings();
+      }
+    }).row);
+  }
   content.append(wallpaperSection);
 
-  const motionSection = makeSection("ДВИЖЕНИЕ ФОНА");
+  const motionSection = makeSection("Видео и движение");
   const parallax = makeToggle(settings.parallaxEnabled, "Включить лёгкий параллакс");
   parallax.input.addEventListener("change", async () => {
     settings.parallaxEnabled = parallax.input.checked;
@@ -1701,96 +1762,67 @@ function renderGeneralSettings(content) {
   videoActions.append(chooseVideo, clearVideo, videoInput);
   motionSection.append(videoActions);
   content.append(motionSection);
+}
 
-  const behavior = makeSection("ПОИСК И ВРЕМЯ");
-  const engine = makeSelect(Object.entries(ENGINES).map(([key, item]) => [key, item.label]), settings.engine);
-  engine.addEventListener("change", () => { settings.engine = engine.value; updateEngineButton(); saveSettings(); });
-  behavior.append(makeRow("Поисковая система", "Используется для поиска из строки на странице.", engine));
-  const captionToggle = makeToggle(settings.showCaption !== false, "Показывать подпись под строкой поиска");
-  captionToggle.input.addEventListener("change", async () => {
-    settings.showCaption = captionToggle.input.checked;
-    renderAppearance();
-    await saveSettings();
-  });
-  behavior.append(makeRow("Подпись под поиском", "Нижняя строка со сменной фразой. Можно спрятать — поиск от этого не пострадает.", captionToggle.label));
-  const timeFormat = makeSelect([["24", "24 часа"], ["12", "12 часов"]], settings.timeFormat);
-  timeFormat.addEventListener("change", () => { settings.timeFormat = timeFormat.value; updateClock(); saveSettings(); });
-  behavior.append(makeRow("Формат времени", "Выбери привычный формат часов.", timeFormat));
-  const idleDelay = makeSelect([["0", "Выключено"], ["30", "30 секунд"], ["60", "1 минута"], ["120", "2 минуты"], ["300", "5 минут"], ["600", "10 минут"]], String(settings.idleClockDelay));
-  idleDelay.addEventListener("change", async () => {
-    settings.idleClockDelay = Number(idleDelay.value);
-    await saveSettings();
-    resetIdleTimer(true);
-  });
-  behavior.append(makeRow("Часы при бездействии", "По центру появятся время и погода.", idleDelay));
-  content.append(behavior);
-
-  const seasonal = makeSection("СЕЗОННОЕ НАСТРОЕНИЕ");
-  const snowLabel = document.createElement("label");
-  snowLabel.className = "toggle-switch";
-  snowLabel.setAttribute("aria-label", "Включить снегопад");
-  const snowToggle = document.createElement("input");
-  snowToggle.type = "checkbox";
-  snowToggle.checked = Boolean(settings.snowEnabled);
-  snowToggle.setAttribute("aria-label", "Включить эффект снегопада");
-  const snowTrack = el("span", "toggle-track");
-  snowTrack.setAttribute("aria-hidden", "true");
-  snowLabel.append(snowToggle, snowTrack);
-  seasonal.append(makeRow("Снегопад", "Нежные снежинки поверх обоев.", snowLabel));
+function renderSnowSettings(content) {
+  content.append(...drawerHeading("Снег", "Настрой снегопад и накопление снега на виджетах."));
+  const activation = makeSection("Когда идёт снег");
+  const seasonal = makeSection("Эффект");
+  const snow = makeToggle(settings.snowEnabled, "Включить эффект снегопада");
+  activation.append(makeRow("Включить снегопад", "", snow.label));
   const accumulation = makeToggle(settings.snowAccumulation !== false, "Снег на виджетах");
   accumulation.input.addEventListener("change", () => {
     settings.snowAccumulation = accumulation.input.checked;
     if (!settings.snowAccumulation) snowDrifts?.clear();
     saveSettings();
   });
-  seasonal.append(makeRow("Снег на виджетах", "Снег собирается на виджетах. В центре мышь перемешивает его, у боковых краёв — сбрасывает вниз. Работает при включённом снегопаде.", accumulation.label));
+  const accumulationRow = makeRow("Снег на виджетах", "Снег можно смахивать курсором.", accumulation.label);
 
   const snowSliders = [];
   for (const [key, label, help] of [
     ["snowDensity", "Плотность снега", "От нескольких снежинок до густого снегопада."],
     ["snowWind", "Сила ветра", "От штиля до сильных боковых порывов."],
   ]) {
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = "0";
-    slider.max = "100";
-    slider.value = settings[key];
-    slider.setAttribute("aria-label", label);
-    slider.disabled = !isSnowEffectActive();
-    const value = el("output", "", slider.value + "%");
-    value.setAttribute("aria-hidden", "true");
-    const control = el("span", "snow-slider");
-    control.append(slider, value);
-    slider.addEventListener("input", () => {
-      settings[key] = slider.valueAsNumber;
-      value.textContent = slider.value + "%";
-      if (key === "snowDensity" && isSnowEffectActive()) {
-        createSnowflakes(true);
-        if (reducedMotion.matches) drawSnowflakes(0, true);
+    const { row, range } = makeRangeRow(label, help, {
+      min: 0, max: 100, value: settings[key], onInput: value => {
+        settings[key] = value;
+        if (key === "snowDensity" && isSnowEffectActive()) {
+          createSnowflakes(true);
+          if (reducedMotion.matches) drawSnowflakes(0, true);
+        }
+        scheduleSaveSettings();
       }
-      scheduleSaveSettings();
     });
-    snowSliders.push(slider);
-    seasonal.append(makeRow(label, help, control));
+    snowSliders.push(range);
+    seasonal.append(row);
   }
-  seasonal.append(el("p", "setting-help", "Эффект работает только в новой вкладке, не использует сеть и автоматически становится статичным при включённом в системе уменьшении анимации."));
-  snowToggle.addEventListener("change", async () => {
-    settings.snowEnabled = snowToggle.checked;
-    for (const slider of snowSliders) slider.disabled = !isSnowEffectActive();
-    await saveSettings();
+  const syncSnowControls = () => {
+    const enabled = isSnowEffectActive();
+    for (const control of [...snowSliders, accumulation.input]) control.disabled = !enabled;
+  };
+  snow.input.addEventListener("change", () => {
+    settings.snowEnabled = snow.input.checked;
+    syncSnowControls();
     setSnowEffect(isSnowEffectActive());
+    saveSettings();
   });
   const snowSchedule = makeToggle(settings.snowSchedule, "Автоматически включать снег зимой");
-  snowSchedule.input.addEventListener("change", async () => {
+  snowSchedule.input.addEventListener("change", () => {
     settings.snowSchedule = snowSchedule.input.checked;
-    for (const slider of snowSliders) slider.disabled = !isSnowEffectActive();
-    await saveSettings();
+    syncSnowControls();
     setSnowEffect(isSnowEffectActive());
+    saveSettings();
   });
-  seasonal.append(makeRow("Снег зимой автоматически", "Включать с декабря по февраль.", snowSchedule.label));
-  content.append(seasonal);
+  syncSnowControls();
+  activation.append(makeRow("Снег зимой автоматически", "С декабря по февраль.", snowSchedule.label));
+  seasonal.append(accumulationRow);
+  seasonal.append(el("p", "setting-help", "При включённом уменьшении анимации снежинки остаются неподвижными."));
+  content.append(activation, seasonal);
+}
 
-  const backup = makeSection("РЕЗЕРВНАЯ КОПИЯ");
+function renderDataSettings(content) {
+  content.append(...drawerHeading("Данные", "Переноси настройки между устройствами и проверяй, какие сервисы использует вкладка."));
+  const backup = makeSection("Резервная копия");
   backup.append(el("p", "setting-help", "Экспортируй настройки, закладки и фон в JSON или восстанови их из резервной копии."));
   const exportButton = el("button", "drawer-button", "↓  Экспортировать настройки");
   exportButton.type = "button";
@@ -1808,29 +1840,16 @@ function renderGeneralSettings(content) {
   backup.append(backupActions);
   content.append(backup);
 
-  const privacy = makeSection("ПРИВАТНОСТЬ");
-  privacy.append(el("p", "setting-help", "Настройки и собственные обои остаются в хранилище Chrome. Open-Meteo определяет координаты выбранного города, MET Norway отдаёт прогноз. Google получает домены сайтов для фавиконов (можно отключить), GitHub — запросы проверки обновлений. Геолокация и аналитика не используются."));
+  const privacy = makeSection("Приватность");
+  privacy.append(el("p", "setting-help", "Настройки, закладки и свои обои хранятся в Chrome. Расширение работает без аналитики и геолокации."));
+  const services = el("dl", "settings-services");
+  for (const [service, purpose] of [
+    ["Open-Meteo и MET Norway", "Поиск города и прогноз погоды."],
+    ["Google", "Иконки сайтов по их доменам. Можно отключить в разделе «Избранное»."],
+    ["GitHub", "Проверка версии расширения."],
+  ]) services.append(el("dt", "", service), el("dd", "setting-help", purpose));
+  privacy.append(services);
   content.append(privacy);
-  const groups = [["Виджеты и поведение", [presets, widgets, behavior]], ["Внешний вид", [visual, wallpaperSection, motionSection, seasonal]], ["Данные и приватность", [backup, privacy]]];
-  const tabs = el("div", "settings-tabs");
-  tabs.setAttribute("role", "group");
-  tabs.setAttribute("aria-label", "Категории общих настроек");
-  const panels = groups.map(([label, sections]) => {
-    const panel = el("div", "settings-category");
-    panel.append(...sections);
-    const button = el("button", "drawer-button", label);
-    button.type = "button";
-    button.addEventListener("click", () => {
-      panels.forEach(({ panel: other, button: control }) => {
-        other.hidden = other !== panel;
-        control.setAttribute("aria-pressed", String(other === panel));
-      });
-    });
-    tabs.append(button);
-    return { panel, button };
-  });
-  content.append(tabs);
-  panels.forEach(({ panel, button }, index) => { panel.hidden = index !== 0; button.setAttribute("aria-pressed", String(index === 0)); content.append(panel); });
 }
 
 async function exportSettingsBackup() {
@@ -1985,8 +2004,8 @@ function validCityLocation(place) {
 }
 
 function renderWeatherSettings(content) {
-  content.append(...drawerHeading("Небо сегодня", "Погода загружается для указанного города. Геолокация не нужна."));
-  const section = makeSection("ПОГОДА");
+  content.append(...drawerHeading("Погода", "Выбери город и единицы измерения."));
+  const section = makeSection("Город и температура");
   const cityControl = el("div", "city-control");
   const city = document.createElement("input"); city.type = "search"; city.value = settings.city; city.placeholder = "Начни вводить город…"; city.maxLength = 70; city.autocomplete = "off"; city.setAttribute("aria-label", "Найти город");
   const results = el("div", "city-results"); results.hidden = true;
@@ -2037,60 +2056,63 @@ function renderWeatherSettings(content) {
   const refresh = el("button", "drawer-button", "↻  Обновить погоду"); refresh.type = "button"; refresh.addEventListener("click", () => updateWeather(true));
   const actions = el("div", "button-row"); actions.append(refresh); section.append(actions);
   content.append(section);
-  renderWidgetSizeSetting(content, "weather", "Размер виджета погоды");
+  const size = makeSection("Размер виджета");
+  size.append(widgetSizeRow("weather", "Погода"));
+  content.append(size);
 }
 
 function renderClockSettings(content) {
-  content.append(...drawerHeading("Время в своём ритме", "Настрой отображение часов и даты."));
-  const section = makeSection("ЧАСЫ И ДАТА");
+  content.append(...drawerHeading("Часы и дата", "Настрой формат времени и размеры виджетов."));
+  const section = makeSection("Отображение");
   const display = makeSelect([["analog", "Только аналоговые"], ["digital", "Только цифровые"], ["both", "Показывать оба вида"]], settings.clockDisplay);
   display.addEventListener("change", async () => { settings.clockDisplay = display.value; renderWidgetLayout(); await saveSettings(); });
   section.append(makeRow("Вид часов", "Выбери, какие часы показывать на экране.", display));
   const format = makeSelect([["24", "24 часа"], ["12", "12 часов"]], settings.timeFormat);
   format.addEventListener("change", async () => { settings.timeFormat = format.value; updateClock(); await saveSettings(); });
   section.append(makeRow("Формат времени", "Для цифровых часов и режима бездействия.", format));
-  section.append(el("p", "setting-help", "Дата и время берутся из системных настроек компьютера."));
   content.append(section);
-  renderWidgetSizeSetting(content, "date", "Размер календаря");
-  renderWidgetSizeSetting(content, "clock", "Размер часов");
+  const idle = makeSection("Режим бездействия");
+  const idleDelay = makeSelect([["0", "Выключено"], ["30", "30 секунд"], ["60", "1 минута"], ["120", "2 минуты"], ["300", "5 минут"], ["600", "10 минут"]], String(settings.idleClockDelay));
+  idleDelay.addEventListener("change", async () => {
+    settings.idleClockDelay = Number(idleDelay.value);
+    await saveSettings();
+    resetIdleTimer(true);
+  });
+  idle.append(makeRow("Часы при бездействии", "По центру появятся время и погода.", idleDelay));
+  content.append(idle);
+  const sizes = makeSection("Размер виджетов");
+  sizes.append(widgetSizeRow("date", "Дата"), widgetSizeRow("clock", "Часы"));
+  content.append(sizes);
 }
 
 function renderBookmarkSettings(content) {
-  content.append(...drawerHeading("Твои места", "Добавляй любимые сайты и расставляй их в удобном порядке."));
-  const section = makeSection("ИЗБРАННЫЕ САЙТЫ");
-  const layoutMode = makeSelect([["free", "Блоки независимо"], ["stack", "Одна вертикальная колонка слева"], ["custom", "Мой макет по сетке"]], settings.layoutMode || "free");
-  layoutMode.addEventListener("change", () => setLayoutMode(layoutMode.value));
-  section.append(makeRow("Расположение", "Размещай блоки независимо, колонкой или в конструкторе.", layoutMode));
+  content.append(...drawerHeading("Избранное", "Управляй сайтами, порядком и значками."));
+  const appearance = makeSection("Оформление избранного");
   const favicons = makeToggle(settings.faviconEnabled !== false, "Показывать иконки сайтов");
   favicons.input.addEventListener("change", async () => {
     settings.faviconEnabled = favicons.input.checked;
     renderBookmarks();
     await saveSettings();
   });
-  section.append(makeRow("Иконки сайтов", "Фавикон с сайта вместо буквы. Свой символ или картинка всегда важнее.", favicons.label));
+  appearance.append(makeRow("Иконки сайтов", "Фавикон с сайта вместо буквы. Свой символ или картинка всегда важнее.", favicons.label));
   const iconStyle = makeSelect([["color", "Обычные цветные"], ["mono", "Монохромные"]], settings.iconStyle || "color");
   iconStyle.addEventListener("change", async () => {
     settings.iconStyle = iconStyle.value;
     applyIconStyle();
     await saveSettings();
   });
-  section.append(makeRow("Стиль значков", "Цветные значки сайтов или спокойный монохром.", iconStyle));
-  const editLayout = el("button", "drawer-button", "⌗  Растянуть и расставить по сетке");
-  editLayout.type = "button";
-  editLayout.addEventListener("click", () => { closeDrawer(); toggleLayoutEditor(true); });
-  section.append(editLayout);
+  appearance.append(makeRow("Стиль значков", "Цветные значки сайтов или спокойный монохром.", iconStyle));
+  appearance.append(widgetSizeRow("bookmarks", "Размер виджета"));
+  const section = makeSection("Сайты");
   const list = el("div", "bookmark-edit-list");
   const listHeading = el("div", "bookmark-list-heading");
-  listHeading.append(el("h2", "", "Твои сайты"), el("span", "", String(settings.bookmarks.length) + " / 24"));
-  section.append(listHeading);
+  listHeading.append(el("span", "setting-help", `${settings.bookmarks.length} из 24 сайтов`));
   const bookmarks = Array.isArray(settings.bookmarks) ? settings.bookmarks : [];
-  if (!bookmarks.length) list.append(el("p", "empty-bookmarks", "Здесь пока тихо. Добавь первый сайт."));
+  if (!bookmarks.length) list.append(el("p", "empty-bookmarks", "Добавь первый сайт."));
   bookmarks.forEach((bookmark, index) => {
     const editItem = el("div", "bookmark-edit-item");
     const rebuildList = (focusIndex = index) => {
-      const scroll = $("#drawerContent").scrollTop;
       renderDrawer();
-      $("#drawerContent").scrollTop = scroll;
       const items = Array.from($("#drawerContent").querySelectorAll(".bookmark-edit-item"));
       items[Math.min(focusIndex, items.length - 1)]?.querySelector("input")?.focus({ preventScroll: true });
     };
@@ -2194,9 +2216,6 @@ function renderBookmarkSettings(content) {
     editItem.append(row, details);
     list.append(editItem);
   });
-  const appearance = el("details", "bookmark-appearance-details");
-  appearance.append(el("summary", "", "Вид и расположение избранного"));
-  while (section.firstChild && section.firstChild !== listHeading) appearance.append(section.firstChild);
   section.append(list);
   const add = el("button", "drawer-button", "＋  Добавить сайт"); add.type = "button";
   add.disabled = bookmarks.length >= 24;
@@ -2206,36 +2225,21 @@ function renderBookmarkSettings(content) {
     await saveSettings(); renderBookmarks(); renderDrawer();
     const inputs = $$(".bookmark-edit-row input", $("#drawerContent")); inputs.at(-2)?.focus(); inputs.at(-2)?.select();
   });
-  const actions = el("div", "button-row bookmark-add-row"); actions.append(add);
-  section.insertBefore(actions, list);
-  section.append(appearance);
-  content.append(section);
-  content.append(el("p", "setting-help", "Перетаскивай значки в карточке или используй стрелки для изменения порядка. Карточка растёт по числу закладок. Значок можно задать символом, цветом или своим изображением."));
-  renderWidgetSizeSetting(content, "bookmarks", "Размер виджета закладок");
+  listHeading.append(add);
+  section.insertBefore(listHeading, list);
+  content.append(appearance, section);
 }
 
-function renderWidgetSizeSetting(content, widget, label) {
-  const section = makeSection("РАЗМЕР ВИДЖЕТА");
-  const range = document.createElement("input");
-  range.type = "range";
-  range.min = "75";
-  range.max = "140";
-  range.step = "5";
-  range.value = String(settings.widgetSizes?.[widget] || 100);
-  const value = el("span", "setting-value", `${range.value}%`);
-  range.addEventListener("input", () => {
-    settings.widgetSizes[widget] = Number(range.value);
-    value.textContent = `${range.value}%`;
-    // На тике слайдера достаточно одной переменной и перераскладки —
-    // полная renderAppearance() тут перезапускала бы обои и видео.
-    document.documentElement.style.setProperty(`--widget-${widget}-scale`, String(Number(range.value) / 100));
-    scheduleWidgetLayout();
-  });
-  range.addEventListener("change", saveSettings);
-  const row = makeRow(label, "Изменение сразу видно на странице.", range);
-  row.lastElementChild.append(value);
-  section.append(row);
-  content.append(section);
+function widgetSizeRow(widget, label) {
+  return makeRangeRow(label, "", {
+    min: 75, max: 140, step: 5, value: settings.widgetSizes?.[widget] ?? 100,
+    onInput: value => {
+      settings.widgetSizes[widget] = value;
+      document.documentElement.style.setProperty(`--widget-${widget}-scale`, String(value / 100));
+      scheduleWidgetLayout();
+      scheduleSaveSettings();
+    }
+  }).row;
 }
 
 function updateEngineButton() {
@@ -2619,7 +2623,7 @@ function setupEvents() {
   document.addEventListener("pointerdown", event => { if (!event.target.closest("#bookmarkMenu")) closeBookmarkMenu(); });
   $("#searchForm").addEventListener("submit", startSearch);
   $("#engineButton").addEventListener("click", toggleEngineMenu);
-  $("#openGeneralSettings").addEventListener("click", () => openDrawer("general"));
+  $("#openGeneralSettings").addEventListener("click", () => openDrawer());
   $("#toggleLayoutEdit").addEventListener("click", () => toggleLayoutEditor());
   $("#finishLayoutEdit").addEventListener("click", () => toggleLayoutEditor(false));
   $("#cancelLayoutEdit").addEventListener("click", () => {
@@ -2757,7 +2761,7 @@ function setupEvents() {
       if (settings.hiddenWidgets?.includes("search")) return;
       event.preventDefault(); $("#searchInput").focus();
     }
-    if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openDrawer("general"); }
+    if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); openDrawer(); }
     if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "f" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
       event.preventDefault();
       toggleFocusMode();
