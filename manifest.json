@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "yunagi — тихая новая вкладка",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "yunagi — тихая, настраиваемая новая вкладка с обоями, погодой и закладками.",
   "permissions": [
     "storage",
