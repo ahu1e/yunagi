@@ -90,7 +90,7 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
   z-index: -4;
   background: url("Image.webp") center center / cover no-repeat;
   transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
-  filter: brightness(var(--wallpaper-brightness, .76));
+  filter: brightness(calc(var(--wallpaper-brightness, .76) * var(--wallpaper-daylight, 1)));
   /* Без transition по filter: слайдер яркости шлёт значения непрерывно,
      а анимация filter на полноэкранном слое перерисовывала бы его каждый кадр. */
   transition: transform .35s var(--ease);
@@ -105,7 +105,7 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
   opacity: 0;
   pointer-events: none;
   transform: scale(var(--wallpaper-scale, 1)) translate3d(var(--parallax-x, 0px), var(--parallax-y, 0px), 0);
-  filter: brightness(var(--wallpaper-brightness, .76));
+  filter: brightness(calc(var(--wallpaper-brightness, .76) * var(--wallpaper-daylight, 1)));
   transition: opacity .7s ease, transform .35s var(--ease);
 }
 .wallpaper-video.is-active { opacity: 1; }
@@ -189,6 +189,14 @@ body.page-enter:not(.assets-ready) .brand-mark,
 body.page-enter:not(.assets-ready) .settings-trigger,
 body.page-enter:not(.assets-ready) .focus-trigger,
 body.page-enter:not(.assets-ready) .layout-trigger { animation-play-state: paused; }
+
+/* Fading the whole canvas isolates backdrop filters from the wallpaper in Chrome. */
+:root[data-surface="frosted"] body.page-enter :is(.canvas, .wallpaper-shade) {
+  animation: none;
+}
+:root[data-surface="frosted"] body.page-enter:not(.assets-ready) .canvas {
+  visibility: hidden;
+}
 
 /* ---------- 6. Материал ---------- */
 .glass {
@@ -519,61 +527,11 @@ body.icons-mono .bookmark-icon { filter: grayscale(1); }
   border-radius: var(--r-card);
   container-type: inline-size;
 }
-.clock-card[data-display="analog"] .digital-time,
-.clock-card[data-display="digital"] .analog-clock { display: none; }
-.analog-clock {
-  position: relative;
-  width: 50px;
-  height: 50px;
-  flex: 0 0 50px;
-  border: 1px solid rgba(255, 255, 255, .38);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
-}
-.analog-clock::before, .analog-clock::after {
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  width: 1px;
-  height: 4px;
-  background: rgba(255, 255, 255, .6);
-  content: "";
-  transform: translateX(-50%);
-}
-.analog-clock::after { top: auto; bottom: 4px; }
-.clock-hand {
-  position: absolute;
-  bottom: 50%;
-  left: 50%;
-  display: block;
-  width: 1.5px;
-  border-radius: 2px;
-  background: white;
-  transform-origin: 50% 100%;
-}
-.hour-hand { height: 12px; }
-.minute-hand { height: 16px; opacity: .85; }
-.clock-pin {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: white;
-  transform: translate(-50%, -50%);
-}
 .digital-time {
-  font-size: clamp(15px, 15cqi, 22px);
-  font-weight: 620;
-  letter-spacing: -.03em;
-  font-variant-numeric: tabular-nums;
-}
-.clock-card[data-display="digital"] .digital-time {
   font-size: clamp(26px, 30cqi, 64px);
-  font-weight: 600;
+  font-weight: 550;
   letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 11. Поиск ---------- */
@@ -1464,7 +1422,6 @@ body.layout-editing .bookmark-item { cursor: default; }
 @media (max-width: 390px) {
   .date-card, .clock-card { max-width: 92px; }
   .clock-card { gap: 8px; }
-  .analog-clock { width: 36px; height: 36px; flex-basis: 36px; }
   .search-caption { font-size: 10px; letter-spacing: .02em; }
   .focus-trigger { right: calc(var(--gutter-x) + 50px); }
   .layout-trigger { display: none; }
@@ -1513,18 +1470,19 @@ body.layout-editing .bookmark-item { cursor: default; }
 }
 
 /* Surface collection: appearance is independent of accent and wallpaper. */
-:root, :root[data-surface="metal"] {
+:root[data-surface="metal"] {
   --glass-color: rgba(18,19,22,.78);
   --glass-color-hover: rgba(26,28,32,.82);
   --glass-image: linear-gradient(145deg, rgba(255,255,255,.065), transparent 48%, rgba(255,255,255,.015));
   --glass-blur: blur(30px) saturate(.85);
   --material-edge: conic-gradient(from 30deg, rgba(255,255,255,.04), rgba(255,255,255,.08) 15%, rgba(226,232,239,.55) 20%, rgba(255,255,255,.04) 27%, rgba(255,255,255,.06) 58%, rgba(187,207,196,.4) 64%, rgba(255,255,255,.07) 71%, rgba(255,255,255,.6) 86%, rgba(255,255,255,.04) 93%);
 }
-:root[data-surface="frosted"] {
-  --glass-color: rgba(67,71,78,.46); --glass-color-hover: rgba(83,88,96,.5);
-  --glass-image: linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.025) 70%);
-  --glass-blur: blur(46px) saturate(.8);
-  --material-edge: linear-gradient(135deg, rgba(255,255,255,.42), rgba(255,255,255,.06) 45%, rgba(255,255,255,.16));
+:root:not([data-surface]), :root[data-surface="frosted"], [data-surface-choice="frosted"] {
+  /* Sample the live backdrop. Keep only a thin neutral veil for white text. */
+  --glass-color: rgba(0, 0, 0, .08);
+  --glass-color-hover: var(--glass-color);
+  --glass-image: none;
+  --glass-blur: blur(24px) saturate(.9);
 }
 :root[data-surface="clear"] {
   --glass-color: rgba(20,24,30,.22); --glass-color-hover: rgba(35,40,48,.3);
@@ -1533,7 +1491,7 @@ body.layout-editing .bookmark-item { cursor: default; }
   --material-edge: linear-gradient(135deg, rgba(255,255,255,.3), rgba(255,255,255,.04) 60%, rgba(255,255,255,.2));
 }
 .glass { border-color: rgba(255,255,255,.07); box-shadow: 0 10px 30px -12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04); }
-.glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--material-edge); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; pointer-events: none; opacity: .65; transition: opacity .3s; }
+.glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--material-edge, transparent); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; pointer-events: none; opacity: .65; transition: opacity .3s; }
 .glass:hover::before, .search-box:focus-within::before { opacity: 1; }
 .weather-card { min-height: 112px; gap: 13px; padding: 19px 18px; }
 .weather-temp { font-size: 32px; font-weight: 450; letter-spacing: -.055em; }
@@ -1552,9 +1510,6 @@ body.layout-editing .bookmark-item { cursor: default; }
 .date-month { font-weight: 450; }
 .date-year { font-size: 10px; opacity: .7; }
 .clock-card { padding: 18px; gap: 16px; }
-.analog-clock { width: 42px; height: 42px; flex-basis: 42px; border-color: rgba(255,255,255,.17); background: rgba(255,255,255,.025); box-shadow: none; }
-.digital-time { font-weight: 450; letter-spacing: -.045em; }
-.clock-card[data-display="digital"] .digital-time { font-weight: 550; }
 .search-box { border-radius: 22px; }
 .search-box input { font-size: 14px; }
 .engine-button { border-radius: 50%; border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-weight: 500; }
@@ -1565,7 +1520,15 @@ body.layout-editing .bookmark-item { cursor: default; }
 .surface-option-description { font-size: 10px; line-height: 1.4; color: var(--faint); }
 .surface-sample { display: grid; height: 72px; place-items: center; border-radius: 10px; background: radial-gradient(ellipse at 15% 80%, #59665d, transparent 65%), radial-gradient(ellipse at 85% 10%, #696577, #202329); }
 .surface-sample-clock { padding: 10px 15px; border: 1px solid rgba(255,255,255,.2); border-radius: 13px; font-size: 18px; font-weight: 350; background: rgba(18,19,22,.85); }
-[data-surface-choice="frosted"] .surface-sample-clock { background: rgba(130,134,142,.5); border-color: rgba(255,255,255,.4); }
+[data-surface-choice="frosted"] .surface-sample {
+  background: radial-gradient(ellipse at bottom left, #101012 30%, transparent 75%), #dad9d6;
+}
+[data-surface-choice="frosted"] .surface-sample-clock {
+  background-color: var(--glass-color);
+  background-image: var(--glass-image);
+  backdrop-filter: blur(8px) saturate(.9);
+  border-color: rgba(255, 255, 255, .46);
+}
 [data-surface-choice="clear"] .surface-sample-clock { background: rgba(255,255,255,.05); }
 @media(max-width: 480px) { .surface-options { grid-template-columns: 1fr; } .surface-sample { height: 60px; } .weather-panel { padding: 20px; } }
 @media(prefers-reduced-motion: reduce) { .weather-panel[open] { animation: none; } }
@@ -1665,7 +1628,29 @@ body.layout-editing .bookmark-item { cursor: default; }
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
 :root[data-surface="clear"] { --glass-color: rgba(15,19,26,.4); --glass-color-hover: rgba(25,30,38,.48); }
 :root[data-surface="clear"] .weather-panel { background-color: rgba(20,24,30,.84); }
-:root[data-surface="frosted"] .weather-panel { background-color: rgba(49,53,60,.86); }
+:root[data-surface="frosted"] :is(.glass, .weather-panel, .settings-drawer) {
+  border-color: rgba(255, 255, 255, .42);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .16);
+  --muted: rgba(255, 255, 255, .84);
+  --faint: rgba(255, 255, 255, .73);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+}
+:root[data-surface="frosted"] .glass:hover,
+:root[data-surface="frosted"] .search-box:focus-within {
+  border-color: rgba(255, 255, 255, .65);
+  background-color: var(--glass-color-hover);
+}
+:root[data-surface="frosted"] :is(.weather-panel, .settings-drawer) {
+  background: rgba(0, 0, 0, .28);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+:root[data-surface="frosted"] body.drawer-open .drawer-scrim,
+:root[data-surface="frosted"] .weather-panel::backdrop {
+  background: rgba(0, 0, 0, .18);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 @media (max-width: 700px) { .layout-edit-bar { width: calc(100vw - 24px); grid-template-columns: 1fr; gap: 12px; } .editor-actions { flex-wrap: wrap; } .editor-key-hint { display: none; } }
 @media (max-width: 480px) {
   .drawer-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }

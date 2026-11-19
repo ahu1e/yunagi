@@ -52,6 +52,12 @@ const server = http.createServer((req, res) => {
     }
     const nav=page.locator('#drawerNav');
     await nav.getByRole('button',{name:'Фон',exact:true}).click();
+    const daylight=page.getByRole('checkbox',{name:'Освещение по времени суток'});
+    assert.equal(await daylight.isChecked(),true);
+    await daylight.uncheck();
+    assert.equal(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--wallpaper-daylight')),'1');
+    await daylight.check();
+    assert.notEqual(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--wallpaper-daylight')),'1');
     const crop=page.getByRole('combobox',{name:'Кадрирование'});
     const vertical=page.getByRole('slider',{name:'Вертикальное положение'});
     await crop.selectOption('center 35%');
@@ -182,9 +188,8 @@ const server = http.createServer((req, res) => {
       assert.ok(Math.abs((await geometry.locator('.search-area').boundingBox()).width-initial.width)<1, 'undo restores search width');
       await geometry.locator('#cancelLayoutEdit').click();
     }
-    await geometry.evaluate(()=>{settings.clockDisplay='digital';renderWidgetLayout();});
     await geometry.waitForFunction(()=>getComputedStyle(document.querySelector('#digitalTime')).fontWeight==='550');
-    assert.equal(await geometry.locator('#digitalTime').evaluate(el=>getComputedStyle(el).fontWeight),'550',JSON.stringify(await geometry.evaluate(()=>({mode:settings.clockDisplay,display:document.querySelector('#clockCard').dataset.display,selected:document.querySelector('.clock-card[data-display="digital"] .digital-time')!==null}))));
+    assert.equal(await geometry.locator('#digitalTime').evaluate(el=>getComputedStyle(el).fontWeight),'550');
     await geometry.close();
     await page.setViewportSize({width:1280,height:800});
     await page.emulateMedia({reducedMotion:'no-preference'});

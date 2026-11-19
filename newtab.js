@@ -23,7 +23,7 @@ const DEFAULTS = {
   scale: 100,
   position: "center",
   accent: "snow",
-  surfaceStyle: "metal",
+  surfaceStyle: "frosted",
   customWallpaper: "",
   customVideo: "",
   hasCustomVideo: false,
@@ -41,7 +41,6 @@ const DEFAULTS = {
     clock: { x: 22, y: 3, w: 2, h: 0 },
     search: { x: 8, y: 10, w: 10, h: 0 }
   },
-  clockDisplay: "both",
   showCaption: true,
   snowEnabled: false,
   snowAccumulation: true,
@@ -49,6 +48,7 @@ const DEFAULTS = {
   snowWind: 20,
   snowSchedule: false,
   themeMode: "manual",
+  daylightWallpaper: true,
   idleClockDelay: 120,
   focusNote: "",
   focusTasks: []
@@ -318,7 +318,7 @@ function flushPendingSave() {
 // Вызывается на каждый тик слайдера (input): перетаскивание яркости не должно
 // дергать обои, видео и тему — для этого есть полная renderAppearance().
 function applyAppearanceVars() {
-  document.documentElement.dataset.surface = ["metal", "frosted", "clear"].includes(settings.surfaceStyle) ? settings.surfaceStyle : "metal";
+  document.documentElement.dataset.surface = ["metal", "frosted", "clear"].includes(settings.surfaceStyle) ? settings.surfaceStyle : DEFAULTS.surfaceStyle;
   const brightness = Number(settings.brightness) || DEFAULTS.brightness;
   const shade = Number(settings.shade) || 0;
   const scale = Number(settings.scale) || 100;
@@ -404,8 +404,6 @@ const BOOKMARK_COL_TOLERANCE = 8;
 function renderWidgetLayout() {
   const mode = ["free", "stack", "custom"].includes(settings.layoutMode) ? settings.layoutMode : "free";
   document.body.dataset.layoutMode = mode;
-  const clock = $("#clockCard");
-  if (clock) clock.dataset.display = ["analog", "digital", "both"].includes(settings.clockDisplay) ? settings.clockDisplay : "both";
   const bookmarkWidth = Number(settings.widgetLayout?.bookmarks?.w) || 3;
   const widgetScale = (key) => Math.max(0.75, Math.min(1.4, (Number(settings.widgetSizes?.[key]) || 100) / 100));
   const canvas = $(".canvas");
@@ -731,8 +729,18 @@ function updateWallpaperImage() {
   });
 }
 
+function wallpaperDaylight(now) {
+  const hours = now.getHours() + now.getMinutes() / 60;
+  return 0.98 + 0.10 * Math.cos((hours - 10) * Math.PI / 12);
+}
+
 function updateTheme() {
   const now = new Date();
+  const daylight = settings.daylightWallpaper ? wallpaperDaylight(now).toFixed(4) : "1";
+  const style = document.documentElement.style;
+  if (style.getPropertyValue("--wallpaper-daylight") !== daylight) {
+    style.setProperty("--wallpaper-daylight", daylight);
+  }
   let theme = Object.hasOwn(ACCENT_PALETTES, settings.accent) ? settings.accent : "snow";
   if (settings.themeMode === "time") {
     const hour = now.getHours();
@@ -1044,10 +1052,6 @@ function updateClock() {
   const time = clockTimeFormatter.format(now);
   setText("#digitalTime", time);
   setText("#idleTime", time);
-  const hour = now.getHours() % 12;
-  const minute = now.getMinutes();
-  $("#hourHand").style.transform = `translateX(-50%) rotate(${hour * 30 + minute / 2}deg)`;
-  $("#minuteHand").style.transform = `translateX(-50%) rotate(${minute * 6}deg)`;
 }
 
 const WEATHER_CACHE_KEY = "yunagi-weather-cache-v1";
@@ -1058,20 +1062,54 @@ function readWeatherCache() {
   catch { return null; }
 }
 
+function upcomingWeatherLine(timeseries, currentTemp, now = Date.now()) {
+  const precipitation = symbol => {
+    if (!symbol) return null;
+    if (symbol.includes("sleet")) return "Мокрый снег";
+    if (symbol.includes("snow")) return "Снег";
+    if (symbol.includes("rain")) return "Дождь";
+    return "";
+  };
+  const symbol = entry => entry?.data?.next_1_hours?.summary?.symbol_code;
+  const currentPrecipitation = precipitation(symbol(timeseries[0]));
+  const upcoming = timeseries.slice(1).map(entry => ({
+    hours: (Date.parse(entry.time) - now) / 3600000,
+    precipitation: precipitation(symbol(entry)),
+    temp: entry.data?.instant?.details?.air_temperature
+  })).filter(entry => entry.hours > 0 && entry.hours <= 6);
+  const after = hours => {
+    if (hours < .75) return `через ${Math.max(5, Math.round(hours * 12) * 5)} мин`;
+    const rounded = Math.round(hours);
+    return rounded === 1 ? "через час" : `через ${rounded} ч`;
+  };
+  const start = currentPrecipitation !== null && upcoming.find(entry =>
+    entry.precipitation && entry.precipitation !== currentPrecipitation
+  );
+  if (start) return `${start.precipitation} ${after(start.hours)}`;
+
+  const temperature = upcoming.findLast(entry =>
+    entry.hours >= 2 && Number.isFinite(entry.temp) && Math.abs(entry.temp - currentTemp) >= 3
+  );
+  if (!temperature) return "";
+  const when = after(temperature.hours);
+  return `${when[0].toUpperCase()}${when.slice(1)} · ${displayTemperature(temperature.temp)}`;
+}
+
 function paintWeather(data, stale = false) {
   const current = data.timeseries[0]?.data;
   const temp = current?.instant?.details?.air_temperature;
   if (typeof temp !== "number") throw new Error("В ответе сервиса нет температуры");
   const symbol = current.next_1_hours?.summary?.symbol_code || current.next_6_hours?.summary?.symbol_code || current.next_12_hours?.summary?.symbol_code;
   const [icon, description] = weatherPresentation(symbol);
+  const upcoming = stale ? "" : upcomingWeatherLine(data.timeseries, temp);
   $("#weatherIcon").innerHTML = weatherSvg(icon);
   $("#weatherTemp").textContent = displayTemperature(temp);
   $("#weatherCity").textContent = data.place.name;
-  $("#weatherDescription").textContent = description;
+  $("#weatherDescription").textContent = upcoming || description;
   const age = new Date(data.at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const status = (stale ? "Последний прогноз: " : "Обновлено: ") + age;
   $(".weather-card").title = status;
-  $(".weather-card").setAttribute("aria-label", description + ", " + displayTemperature(temp) + ", " + data.place.name + (stale ? ". " + status : ""));
+  $(".weather-card").setAttribute("aria-label", description + ", " + displayTemperature(temp) + ", " + data.place.name + (upcoming ? ". " + upcoming : "") + (stale ? ". " + status : ""));
   updateIdleWeather(icon, displayTemperature(temp) + " · " + data.place.name, status);
   storeWeatherDetails({ place: data.place.name, tempCelsius: temp, current, timeseries: data.timeseries });
   Object.assign(weatherDetails, { icon, description, status });
@@ -1508,9 +1546,9 @@ function renderTabSettings(content) {
   presets.append(el("p", "setting-help", "Готовые варианты меняют видимость и оформление виджетов. Свои сайты и обои сохраняются."));
   const presetButtons = el("div", "button-row");
   const choices = [
-    ["Минимализм", { hiddenWidgets: ["weather", "bookmarks", "date"], clockDisplay: "digital", showCaption: false, iconStyle: "mono" }],
-    ["Рабочий стол", { hiddenWidgets: [], clockDisplay: "both", showCaption: true, iconStyle: "color" }],
-    ["Только часы", { hiddenWidgets: ["weather", "bookmarks", "date", "search"], clockDisplay: "digital", showCaption: false, iconStyle: "mono" }]
+    ["Минимализм", { hiddenWidgets: ["weather", "bookmarks", "date"], showCaption: false, iconStyle: "mono" }],
+    ["Рабочий стол", { hiddenWidgets: [], showCaption: true, iconStyle: "color" }],
+    ["Только часы", { hiddenWidgets: ["weather", "bookmarks", "date", "search"], showCaption: false, iconStyle: "mono" }]
   ];
   for (const [label, patch] of choices) {
     const button = el("button", "drawer-button", label);
@@ -1567,12 +1605,16 @@ function renderAppearanceSettings(content) {
   const visual = makeSection("Поверхности виджетов");
   const surfaces = el("div", "surface-options");
   surfaces.setAttribute("role", "group"); surfaces.setAttribute("aria-label", "Оформление виджетов");
-  for (const [value, label, description] of [["metal", "Жидкий металл", "Тёмная поверхность и металлические блики"], ["frosted", "Матовое стекло", "Мягкое размытие и рассеянный свет"], ["clear", "Прозрачное стекло", "Лёгкая подложка, больше обоев"]]) {
+  for (const [value, label, description] of [
+    ["metal", "Жидкий металл", "Тёмная поверхность и металлические блики"],
+    ["frosted", "Прозрачное стекло", "Размытые обои и тонкая светлая кромка"],
+    ["clear", "Матовое стекло", "Более плотная подложка и мягкое размытие"]
+  ]) {
     const button = el("button", "surface-option"); button.type = "button"; button.dataset.surfaceChoice = value;
     const sample = el("span", "surface-sample"); sample.setAttribute("aria-hidden", "true");
     sample.append(el("span", "surface-sample-clock", "09:41"));
     button.append(sample, el("strong", "", label), el("span", "surface-option-description", description));
-    button.setAttribute("aria-pressed", String((settings.surfaceStyle || "metal") === value));
+    button.setAttribute("aria-pressed", String((settings.surfaceStyle || DEFAULTS.surfaceStyle) === value));
     button.addEventListener("click", () => {
       settings.surfaceStyle = value; applyAppearanceVars(); saveSettings();
       for (const choice of surfaces.children) choice.setAttribute("aria-pressed", String(choice === button));
@@ -1686,6 +1728,13 @@ function renderBackgroundSettings(content) {
       }
     }).row);
   }
+  const daylight = makeToggle(settings.daylightWallpaper, "Освещение по времени суток");
+  daylight.input.addEventListener("change", () => {
+    settings.daylightWallpaper = daylight.input.checked;
+    updateTheme();
+    saveSettings();
+  });
+  wallpaperSection.append(makeRow("Освещение по времени суток", "Утром фон светлее, вечером мягче.", daylight.label));
   content.append(wallpaperSection);
 
   const motionSection = makeSection("Видео и движение");
@@ -1923,7 +1972,6 @@ function normalizeImportedSettings(source) {
     units: input.units === "fahrenheit" ? "fahrenheit" : "celsius",
     timeFormat: input.timeFormat === "12" ? "12" : "24",
     showCaption: input.showCaption !== false,
-    clockDisplay: ["analog", "digital", "both"].includes(input.clockDisplay) ? input.clockDisplay : DEFAULTS.clockDisplay,
     layoutMode: ["free", "stack", "custom"].includes(input.layoutMode) ? input.layoutMode : DEFAULTS.layoutMode,
     widgetLayout: Object.fromEntries(Object.entries(WIDGET_LAYOUT_DEFAULTS).map(([key, fallback]) => {
       const saved = input.widgetLayout?.[key] || {};
@@ -1940,6 +1988,7 @@ function normalizeImportedSettings(source) {
     accent: accents.includes(input.accent) ? input.accent : DEFAULTS.accent,
     surfaceStyle: ["metal", "frosted", "clear"].includes(input.surfaceStyle) ? input.surfaceStyle : DEFAULTS.surfaceStyle,
     themeMode: themes.includes(input.themeMode) ? input.themeMode : "manual",
+    daylightWallpaper: input.daylightWallpaper !== false,
     idleClockDelay: [0, 30, 60, 120, 300, 600].includes(Number(input.idleClockDelay)) ? Number(input.idleClockDelay) : DEFAULTS.idleClockDelay,
     customWallpaper: image,
     customVideo: video,
@@ -2064,9 +2113,6 @@ function renderWeatherSettings(content) {
 function renderClockSettings(content) {
   content.append(...drawerHeading("Часы и дата", "Настрой формат времени и размеры виджетов."));
   const section = makeSection("Отображение");
-  const display = makeSelect([["analog", "Только аналоговые"], ["digital", "Только цифровые"], ["both", "Показывать оба вида"]], settings.clockDisplay);
-  display.addEventListener("change", async () => { settings.clockDisplay = display.value; renderWidgetLayout(); await saveSettings(); });
-  section.append(makeRow("Вид часов", "Выбери, какие часы показывать на экране.", display));
   const format = makeSelect([["24", "24 часа"], ["12", "12 часов"]], settings.timeFormat);
   format.addEventListener("change", async () => { settings.timeFormat = format.value; updateClock(); await saveSettings(); });
   section.append(makeRow("Формат времени", "Для цифровых часов и режима бездействия.", format));
@@ -2705,6 +2751,7 @@ function setupEvents() {
       snowDrifts?.forgetPointer();
     } else {
       resetIdleTimer(true);
+      updateTheme();
       scheduleWallpaperVideo();
       updateWeather();
       if (isSnowEffectActive() && !reducedMotion.matches && !snowFrame) snowFrame = requestAnimationFrame(animateSnow);
