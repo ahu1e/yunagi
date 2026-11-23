@@ -46,10 +46,36 @@ const server = http.createServer((req, res) => {
     await page.locator('.city-result').filter({hasText:'Техас'}).click();
     await page.waitForFunction(()=>settings.cityLocation?.longitude === -95.55);
     await page.getByRole('button',{name:'Оформление',exact:true}).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.surface-sample-clock')].every(sample =>
+      getComputedStyle(sample).backdropFilter.startsWith('url(')
+    ));
+    const sampleFilters = await page.locator('.surface-sample-clock').evaluateAll(samples =>
+      Object.fromEntries(samples.map(sample => [sample.closest('[data-surface-choice]').dataset.surfaceChoice, getComputedStyle(sample).backdropFilter.replace(/^url\([^)]+\) /, '')]))
+    );
+    assert.equal(new Set(Object.values(sampleFilters)).size, 3, 'each material has a distinct preview');
     for(const theme of ['metal','frosted','clear']) {
-      await page.locator(`[data-surface-choice="${theme}"]`).click();
+      const choice = page.locator(`[data-surface-choice="${theme}"]`);
+      await choice.click();
       assert.equal(await page.locator('html').getAttribute('data-surface'),theme);
+      assert.equal(await choice.getAttribute('aria-pressed'), 'true');
+      await page.waitForFunction(fallback => {
+        const filter = getComputedStyle(document.querySelector('.search-box')).backdropFilter;
+        const hasRefraction = /^url\([^)]+#glass-refraction-\d+/.test(filter);
+        return hasRefraction && filter.replace(/^url\([^)]+\) /, '') === fallback;
+      }, sampleFilters[theme], { timeout: 3000 });
     }
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setEmulatedMedia', { features: [
+      { name: 'prefers-reduced-motion', value: 'reduce' },
+      { name: 'prefers-reduced-transparency', value: 'reduce' },
+      { name: 'prefers-contrast', value: 'more' }
+    ] });
+    await page.waitForFunction(() => {
+      const { backdropFilter, backgroundColor, borderColor } = getComputedStyle(document.querySelector('.search-box'));
+      return backdropFilter === 'none' && backgroundColor === 'rgb(41, 45, 51)' && borderColor === 'rgba(255, 255, 255, 0.75)';
+    }, null, { timeout: 3000 });
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await cdp.detach();
     const nav=page.locator('#drawerNav');
     await nav.getByRole('button',{name:'Фон',exact:true}).click();
     const daylight=page.getByRole('checkbox',{name:'Освещение по времени суток'});

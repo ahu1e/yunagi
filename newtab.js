@@ -883,7 +883,7 @@ function removeBookmark(index) {
 function closeBookmarkMenu() { $("#bookmarkMenu")?.remove(); }
 function openBookmarkMenu(event, index) {
   event.preventDefault(); closeBookmarkMenu();
-  const menu = el("div", "bookmark-context-menu"); menu.id = "bookmarkMenu";
+  const menu = el("div", "bookmark-context-menu glass glass-panel"); menu.id = "bookmarkMenu";
   menu.setAttribute("role", "menu");
   for (const [label, action] of [["Редактировать", () => editBookmark(index)], ["Добавить сайт", addBookmark], ["Удалить", () => removeBookmark(index)]]) {
     const button = el("button", "", label); button.type = "button"; button.setAttribute("role", "menuitem");
@@ -1606,13 +1606,15 @@ function renderAppearanceSettings(content) {
   const surfaces = el("div", "surface-options");
   surfaces.setAttribute("role", "group"); surfaces.setAttribute("aria-label", "Оформление виджетов");
   for (const [value, label, description] of [
-    ["metal", "Жидкий металл", "Тёмная поверхность и металлические блики"],
-    ["frosted", "Прозрачное стекло", "Размытые обои и тонкая светлая кромка"],
-    ["clear", "Матовое стекло", "Более плотная подложка и мягкое размытие"]
+    ["metal", "Жидкий металл", "Почти чёрная поверхность с преломлением по краям"],
+    ["frosted", "Прозрачное стекло", "Лёгкое размытие и преломление обоев по краям"],
+    ["clear", "Матовое стекло", "Более мягкое размытие и преломление по краям"]
   ]) {
     const button = el("button", "surface-option"); button.type = "button"; button.dataset.surfaceChoice = value;
     const sample = el("span", "surface-sample"); sample.setAttribute("aria-hidden", "true");
-    sample.append(el("span", "surface-sample-clock", "09:41"));
+    const sampleClock = el("span", "surface-sample-clock glass", "09:41");
+    sampleClock.setAttribute("data-glass-lens", "");
+    sample.append(sampleClock);
     button.append(sample, el("strong", "", label), el("span", "surface-option-description", description));
     button.setAttribute("aria-pressed", String((settings.surfaceStyle || DEFAULTS.surfaceStyle) === value));
     button.addEventListener("click", () => {
@@ -2644,7 +2646,7 @@ function initializeSnowEffect() {
 function toggleEngineMenu() {
   const existing = $(".engine-menu");
   if (existing) { existing.remove(); return; }
-  const menu = el("div", "engine-menu");
+  const menu = el("div", "engine-menu glass glass-panel");
   menu.setAttribute("role", "listbox");
   for (const [key, engine] of Object.entries(ENGINES)) {
     const option = el("button", "", "");

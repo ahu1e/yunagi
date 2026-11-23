@@ -20,7 +20,7 @@ for(const [size,file] of Object.entries(manifest.icons)) {
   assert.equal(png.subarray(1,4).toString(),'PNG');
   assert.equal(png.readUInt32BE(16),Number(size));assert.equal(png.readUInt32BE(20),Number(size));
 }
-for(const file of ['newtab.js','snow-drifts.js','tests/browser.cjs','scripts/package.cjs']) {
+for(const file of ['newtab.js','liquid-glass.js','snow-drifts.js','tests/browser.cjs','scripts/package.cjs']) {
   const result=spawnSync(process.execPath,['--check',file],{stdio:'inherit'});assert.equal(result.status,0,file+' syntax');
 }
 for(const file of ['tests/settings-weather.cjs','tests/layout-editor.cjs','tests/bookmark-actions.cjs','tests/snow-drifts.cjs','tests/snowfall.cjs']) {
